@@ -1,1 +1,69 @@
+# 官方/第三方技能目录（排除）
+# 自建技能：mcn/, note-taking/wiki-*, devops/hermes-backup, software-development/skill-optimizer, web/web-fetcher
+
+# 官方分类目录
+skills/apple/
+skills/autonomous-ai-agents/
+skills/creative/
+skills/data-science/
+skills/diagramming/
+skills/dogfood/
+skills/domain/
+skills/email/
+skills/feeds/
+skills/gaming/
+skills/gifs/
+skills/github/
+skills/inference-sh/
+skills/leisure/
+skills/media/
+skills/mcp/
+skills/migration/
+skills/mlops/
+skills/productivity/
+skills/red-teaming/
+skills/research/
+skills/skill-creator/
+skills/skill-vetter/
+skills/smart-home/
+skills/social-media/
+skills/testing/
+skills/utilities/
+
+# .hub 目录（官方）
+skills/.hub/
+
+# devops 中的官方技能
+skills/devops/hermes-gateway-model-errors/
+skills/devops/webhook-subscriptions/
+
+# software-development 中的官方技能
+skills/software-development/plan/
+skills/software-development/requesting-code-review/
+skills/software-development/subagent-driven-development/
+skills/software-development/systematic-debugging/
+skills/software-development/test-driven-development/
+skills/software-development/writing-plans/
+
+# note-taking 中的官方技能
+skills/note-taking/apple-notes/
+skills/note-taking/apple-reminders/
+skills/note-taking/DESCRIPTION.md
+skills/note-taking/heartmula/
+skills/note-taking/himalaya/
+skills/note-taking/imessage/
+skills/note-taking/linear/
+skills/note-taking/native-mcp/
+skills/note-taking/notion/
+skills/note-taking/obsidian/
+
+# web 中的过时技能（保留 web-fetcher）
+skills/web/zhihu-*
+
+# 系统文件
 .DS_Store
+skills/.DS_Store
+skills/.bundled_manifest
+skills/*/.DS_Store
+
+# 注意：新安装官方技能后需要添加到此文件

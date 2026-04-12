@@ -1,0 +1,14 @@
+{
+  "name": "hermes-web-fetcher-server",
+  "version": "0.1.0",
+  "description": "Local WebSocket server for Hermes Web Fetcher extension",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}
