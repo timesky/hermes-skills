@@ -208,6 +208,18 @@ tmp/content/
 
 ---
 
+## 与入口技能的关系
+
+**入口技能**：`wechat-mp-auto-publish`（MCN 唯一入口，定时任务 + 人工确认 + 一键执行）
+
+**子技能**（可单独调用）：
+- `mcn-hotspot-aggregator`: 热搜抓取
+- `mcn-topic-selector`: 选题分析
+- `mcn-content-rewriter`: 内容改写
+- `mcn-wechat-publisher`: 公众号发布
+
+---
+
 ## 相关技能
 
 - `mcn-topic-selector`: 选题分析（前置）

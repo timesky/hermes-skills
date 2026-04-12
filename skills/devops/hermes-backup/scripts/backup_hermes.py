@@ -4,16 +4,14 @@ Hermes Agent 完整备份脚本
 
 备份内容：
 1. 配置文件：config.yaml, .env, SOUL.md, auth.json
-2. 自研技能：识别并备份用户开发的技能
+2. 自研技能：识别并备份用户开发的技能（仅备份预定义列表）
 3. 记忆：MEMORY.md, USER.md
 4. 自定义脚本：scripts/ 目录
 5. Cron 任务：cron/ 目录
 
 自研技能识别规则：
-- 技能目录中有 extension/ 或 server/ 子目录（如 web-fetcher）
-- 技能 SKILL.md 中 author 字段是用户名（非 builtin）
-- 技能目录中有 scripts/ 子目录且有自定义 Python 脚本
-- 技能在 predefined CUSTOM_SKILLS 列表中
+- 在预定义 CUSTOM_SKILLS 列表中（精确匹配）
+- SKILL.md 中 author 字段是 Luna/timesky
 
 备份目录：/Users/timesky/backup/hermes_agent_bak/YYYY-MM-DD/
 """
@@ -23,6 +21,7 @@ import sys
 import json
 import shutil
 import hashlib
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 import subprocess
@@ -32,25 +31,25 @@ HERMES_DIR = Path.home() / ".hermes"
 BACKUP_ROOT = Path("/Users/timesky/backup/hermes_agent_bak")
 LOG_FILE = HERMES_DIR / "logs" / "backup.log"
 
-# 预定义的自研技能列表（可扩展）
+# 预定义的自研技能列表（精确匹配，只备份这些）
 CUSTOM_SKILLS = [
-    "web/web-fetcher",
-    "note-taking/wiki-auto-save",
-    "devops/hermes-backup",
-    # MCN 相关技能
-    "mcn/mcn-workflow",
-    "mcn/mcn-topic-selector",
-    "mcn/mcn-hotspot-aggregator",
-    "mcn/mcn-content-rewriter",
-    "mcn/mcn-wechat-publisher",
+    # MCN 系列（公众号自动化）
+    "mcn/wechat-mp-auto-publish",      # 入口技能（唯一入口）
+    "mcn/mcn-hotspot-aggregator",      # 热搜抓取
+    "mcn/mcn-topic-selector",          # 选题分析
+    "mcn/mcn-content-rewriter",        # 内容改写
+    "mcn/mcn-wechat-publisher",        # 公众号发布
+    # 知识库系列
+    "note-taking/wiki-auto-save",      # 自动保存到知识库
+    "note-taking/wiki-ingest",         # 增量式 ingest
+    # 运维备份
+    "devops/hermes-backup",            # Hermes 备份恢复
+    # 开发工具
+    "software-development/skill-optimizer",  # Skill 自动优化
 ]
 
-# 官方技能特征（用于排除）
-BUILTIN_MARKERS = [
-    "builtin",
-    "hermes-agent",
-    "nousresearch",
-]
+# 自建技能作者标识
+CUSTOM_AUTHORS = ["luna", "timesky", "user"]
 
 
 def log(message: str, level: str = "INFO"):
@@ -78,44 +77,29 @@ def is_custom_skill(skill_path: Path) -> bool:
     判断是否是自研技能
     
     规则：
-    1. 在预定义列表中
-    2. 有 extension/ 或 server/ 目录（Chrome 扩展等）
-    3. SKILL.md 中 author 是用户名（非 builtin）
-    4. 有自定义 scripts 目录（不含官方模板）
+    1. 在预定义列表中（精确匹配）
+    2. author 是 Luna/timesky/user
+    3. 有 extension 或 server 目录（自定义扩展）
     """
     skill_name = skill_path.relative_to(HERMES_DIR / "skills")
     
-    # 规则1: 在预定义列表中
+    # 规则1: 在预定义列表中（精确匹配）
     if str(skill_name) in CUSTOM_SKILLS:
         return True
     
-    # 规则2: 有 extension/ 或 server/ 目录
-    if (skill_path / "extension").exists() or (skill_path / "server").exists():
-        return True
-    
-    # 规则3: 检查 SKILL.md 中的 author
+    # 规则2: 检查 SKILL.md 中的 author
     skill_md = skill_path / "SKILL.md"
     if skill_md.exists():
         content = skill_md.read_text(encoding="utf-8")
-        # 检查是否是官方技能
-        if any(marker in content.lower() for marker in BUILTIN_MARKERS):
-            return False
-        # 检查 author 字段
-        if "author:" in content:
-            for line in content.split("\n"):
-                if line.startswith("author:") or "author:" in line:
-                    author = line.split("author:")[-1].strip().lower()
-                    if author and author not in ["builtin", "nous", "hermes"]:
-                        return True
-    
-    # 规则4: 有自定义 scripts 目录
-    scripts_dir = skill_path / "scripts"
-    if scripts_dir.exists():
-        # 检查是否有自定义 Python 脚本
-        for py_file in scripts_dir.glob("*.py"):
-            # 排除官方模板脚本
-            if py_file.name not in ["example.py", "template.py", "__init__.py"]:
+        author_match = re.search(r'author:\s*(\w+)', content)
+        if author_match:
+            author = author_match.group(1).lower()
+            if author in CUSTOM_AUTHORS:
                 return True
+    
+    # 规则3: 有 extension 或 server 目录（自定义扩展）
+    if (skill_path / "extension").exists() or (skill_path / "server").exists():
+        return True
     
     return False
 
@@ -248,7 +232,7 @@ def backup_cron(backup_dir: Path, manifest: dict) -> bool:
 
 
 def backup_skills(backup_dir: Path, manifest: dict) -> bool:
-    """备份自研技能"""
+    """备份自研技能（只备份预定义列表中的）"""
     custom_skills = scan_custom_skills()
     
     if not custom_skills:
@@ -449,7 +433,7 @@ def cleanup_old_backups(keep_days: int = 7):
     
     cleaned = 0
     for item in BACKUP_ROOT.iterdir():
-        if item.is_dir() and item.name not in ["latest"]:
+        if item.is_dir() and item.name not in ["latest", "hermes-skills"]:
             try:
                 date_str = item.name
                 item_date = datetime.strptime(date_str, "%Y-%m-%d")

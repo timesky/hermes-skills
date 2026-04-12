@@ -22,7 +22,27 @@ config_file: ~/.hermes/wechat_mp_config.yaml
 - Ollama 已安装并拉取模型（可选）
 - Stable Diffusion WebUI 运行中（可选，用于主题配图）
 
-## 流程
+---
+
+## 与 MCN 技能的关系
+
+本技能是 **公众号自动发布的入口/调度技能**，负责：
+- 定时任务配置
+- 人工确认点设计
+- 业务规则（文章要求、人设模板）
+
+**执行阶段调用 MCN 子技能**：
+
+| 阶段 | 调用技能 | 说明 |
+|------|----------|------|
+| 热点调研 | `mcn-hotspot-aggregator` | 抓取知乎/微博/抖音热搜 |
+| 选题分析 | `mcn-topic-selector` | 分析相关性，生成推荐 |
+| 内容改写 | `mcn-content-rewriter` | 生成多版本文章 |
+| 公众号发布 | `mcn-wechat-publisher` | API 或浏览器自动化发布 |
+
+**一键执行完整流程**：使用 `mcn-workflow` 技能
+
+---
 
 ## 流程概览
 
@@ -31,18 +51,14 @@ config_file: ~/.hermes/wechat_mp_config.yaml
     自动           自动        自动        唯一交互       自动      自动     自动
 ```
 
-### 详细流程文档
-
-见：[references/flow-tools-summary.md](./references/flow-tools-summary.md)
-
 ### 阶段划分
 
-| 阶段 | 步骤 | 自动化程度 |
-|------|------|------------|
-| **A: 调研推荐** | 定时触发 → 热点调研 → 推荐主题 | 全自动 |
-| **B: 人工确认** | 用户选择主题 | 唯一交互点 |
-| **C: 内容生成** | 深度调研 → 写文章 → 配图 | 全自动 |
-| **D: 发布草稿** | 上传素材 → 创建草稿 → 通知 | 全自动 |
+| 阶段 | 步骤 | 调用技能 | 自动化程度 |
+|------|------|----------|------------|
+| **A: 调研推荐** | 热点调研 → 推荐主题 | mcn-hotspot-aggregator + mcn-topic-selector | 全自动 |
+| **B: 人工确认** | 用户选择主题 | - | 唯一交互点 |
+| **C: 内容生成** | 写文章 → 配图 | mcn-content-rewriter | 全自动 |
+| **D: 发布草稿** | 上传素材 → 创建草稿 | mcn-wechat-publisher | 全自动 |
 
 ### Step 1: 询问主题（唯一人工交互）
 
@@ -150,6 +166,24 @@ draft_data = {
 
 ---
 
+## 相关技能
+
+**子技能（执行单元）**：
+- `mcn-hotspot-aggregator`: 热搜抓取（知乎/微博/抖音等）
+- `mcn-topic-selector`: 选题分析（相关性评分、生成推荐）
+- `mcn-content-rewriter`: 内容改写（多版本文章生成）
+- `mcn-wechat-publisher`: 公众号发布（API + 浏览器自动化）
+
+**注意**：本技能已整合为 MCN 唯一入口，无需使用 mcn-workflow。
+
+---
+
+## 详细流程文档
+
+见：[references/flow-tools-summary.md](./references/flow-tools-summary.md)
+
+---
+
 ## 定时任务配置
 
 | 时间 | 任务 | Job ID | 推送方式 |
@@ -204,3 +238,7 @@ draft_data = {
 → 发布草稿
 → 推送结果通知
 ```
+
+---
+
+*Last updated: 2026-04-12 by Luna*
