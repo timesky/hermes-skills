@@ -191,6 +191,80 @@ python3 ~/.hermes/scripts/restore_hermes.py --backup latest
 
 ---
 
+## 自建技能软连接架构
+
+自建技能通过软连接管理，确保修改自动同步到 Git 仓库。
+
+### 目录结构
+
+```
+/Users/timesky/backup/hermes_agent_bak/hermes-skills/  # Git 仓库（技能源文件）
+├── skills/
+│   ├── mcn/                     # 分类目录
+│   │   ├── wechat-mp-auto-publish/  # 技能源文件
+│   │   ├── mcn-hotspot-aggregator/
+│   │   └── ...
+│   ├── note-taking/
+│   ├── devops/
+│   └── software-development/
+
+~/.hermes/skills/                 # Hermes 技能目录
+├── mcn/
+│   ├── wechat-mp-auto-publish → 软连接 → hermes-skills/skills/mcn/wechat-mp-auto-publish
+│   ├── mcn-hotspot-aggregator → 软连接
+│   └── ...
+├── research/                     # 官方技能（普通目录，不是软连接）
+│   ├── arxiv/
+│   └── llm-wiki/
+```
+
+### 创建新技能流程
+
+1. **在 Git 仓库中创建**：
+   ```bash
+   cd /Users/timesky/backup/hermes_agent_bak/hermes-skills/skills
+   mkdir -p <category>/<skill-name>
+   # 编写 SKILL.md 和相关文件
+   ```
+
+2. **创建软连接**（只链接单个技能目录，不是整个分类）：
+   ```bash
+   ln -s /Users/timesky/backup/hermes_agent_bak/hermes-skills/skills/<category>/<skill-name> ~/.hermes/skills/<category>/<skill-name>
+   ```
+
+3. **提交到 Git**：
+   ```bash
+   cd /Users/timesky/backup/hermes_agent_bak/hermes-skills
+   git add skills/<category>/<skill-name>
+   git commit -m "添加新技能: <skill-name>"
+   git push
+   ```
+
+### 重要注意事项
+
+| 规则 | 说明 |
+|------|------|
+| **只链接单个技能目录** | `ln -s .../skills/<category>/<skill-name>` 不是 `ln -s .../skills` |
+| **不要删除整个分类** | 官方技能在分类目录中，删除整个分类会丢失官方技能 |
+| **恢复备份** | 官方技能丢失时可从 `skills.local.bak` 恢复 |
+| **备份仓库清理** | Git 仓库只保留自建技能，不包含官方技能 |
+
+### 当前自建技能软连接列表（共 9 个）
+
+| 技能 | 软连接状态 |
+|------|------------|
+| mcn/wechat-mp-auto-publish | ✅ 入口技能 |
+| mcn/mcn-hotspot-aggregator | ✅ 热搜抓取 |
+| mcn/mcn-topic-selector | ✅ 选题分析 |
+| mcn/mcn-content-rewriter | ✅ 内容改写 |
+| mcn/mcn-wechat-publisher | ✅ 公众号发布 |
+| note-taking/wiki-auto-save | ✅ 自动保存 |
+| note-taking/wiki-ingest | ✅ 增量式 ingest |
+| devops/hermes-backup | ✅ 备份恢复 |
+| software-development/skill-optimizer | ✅ Skill 优化 |
+
+---
+
 ## 相关
 
 - `wiki-auto-save`: 知识库自动保存
