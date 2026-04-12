@@ -1,7 +1,7 @@
 ---
 name: wiki-ingest
-description: 增量式 ingest 流程，将 raw 源文件转换为 wiki 结构化内容。支持单个文件 ingest 和批量 ingest 两种模式。当用户说"ingest"、"建立 wiki"、"处理 raw 目录"、"批量 ingest"时使用。
-version: 2.0
+description: 增量式 ingest 流程，将 raw 源文件转换为 wiki 结构化内容。支持单个文件 ingest 和批量 ingest 两种模式。当用户说"ingest"、"建立 wiki"、"处理 raw 目录"、"批量 ingest"、"raw 目录所有内容都要建立 wiki"时使用。优先优化此技能，不要创建重复技能。
+version: 2.1
 created: 2026-04-12
 updated: 2026-04-12
 author: Luna
@@ -198,6 +198,67 @@ patch(path="wiki/index.md", old_string=old_count, new_count=new_count)
 3. **相关文件合并**：多篇同主题文章 → 一个 Wiki 页面
 4. **append-only 日志**：log.md 和 processed.log 只追加
 5. **保留原始内容**：增量更新时不删除已有内容
+6. **不要创建重复技能**：发现流程缺陷时，优先优化现有技能（如 wiki-ingest），而不是创建新技能（如 batch-ingest）
+7. **文件验证必须严格**：过滤 placeholder（<1KB）、缓存消息、无 frontmatter 的文件
+
+---
+
+## 实战经验（2026-04-12 批量 ingest）
+
+### 文件验证规则
+
+```python
+def validate_file_content(filepath: Path) -> Tuple[bool, str]:
+    """验证文件内容是否有效"""
+    # 1. 文件大小 >= 1KB（过滤 placeholder）
+    if size < 1000:
+        return False, "文件过小"
+    
+    # 2. 不是缓存消息
+    cache_messages = ["File unchanged since last read", ...]
+    if any(msg in content for msg in cache_messages):
+        return False, "文件内容是缓存消息"
+    
+    # 3. 有 frontmatter
+    if not content.strip().startswith('---'):
+        return False, "文件格式不正确"
+    
+    # 4. 正文字数 >= 50
+    if len(body) < 50:
+        return False, "正文内容过短"
+    
+    return True, "验证通过"
+```
+
+**实战结果**：127 个文件中过滤掉 18 个无效文件（14.2%）
+
+### index.md 更新实现
+
+```python
+def update_index_md(new_pages: List[dict]):
+    content = INDEX_MD.read_text()
+    
+    # 1. 更新 Statistics（使用 regex）
+    content = re.sub(r'page_count: (\d+)', f'page_count: {new_count}', content)
+    content = re.sub(r'\*\*Wiki 页面数\*\*: (\d+)', f'**Wiki 页面数**: {new_count}', content)
+    
+    # 2. 添加新页面到表格（需要智能插入到对应分类表格）
+    # ...
+    
+    INDEX_MD.write_text(content)
+```
+
+### 批量处理流程
+
+1. 扫描 raw/sources/**/*.md
+2. 验证每个文件内容
+3. 检查 processed.log 过滤已处理
+4. 按主题分组（关键词匹配）
+5. 创建/更新 wiki 页面
+6. 更新 index.md Statistics
+7. 追加 processed.log 和 log.md
+
+**实战结果**：109 个有效文件 → 36 个 wiki 页面
 
 ---
 
