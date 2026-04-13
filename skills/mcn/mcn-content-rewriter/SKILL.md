@@ -305,13 +305,102 @@ tmp/content/
 
 ---
 
+## ⭐ 字数验证（必须执行）
+
+**字数要求**：1500-2000字（硬性要求）
+
+```python
+def verify_word_count(content: str, min_words: int = 1500, max_words: int = 2000) -> dict:
+    """验证字数，不够则补充"""
+    
+    # 计算实际字数（排除标点、空格）
+    text_only = re.sub(r'[^\w]', '', content)
+    word_count = len(text_only)
+    
+    result = {
+        'word_count': word_count,
+        'min_words': min_words,
+        'max_words': max_words,
+        'status': 'unknown',
+        'message': ''
+    }
+    
+    if word_count < min_words:
+        result['status'] = 'insufficient'
+        result['message'] = f"字数不足：{word_count}字，需要补充{min_words - word_count}字"
+        result['action'] = 'supplement'
+    elif word_count > max_words:
+        result['status'] = 'excessive'
+        result['message'] = f"字数过多：{word_count}字，需要删减{word_count - max_words}字"
+        result['action'] = 'condense'
+    else:
+        result['status'] = 'valid'
+        result['message'] = f"字数合格：{word_count}字"
+        result['action'] = 'pass'
+    
+    return result
+
+def supplement_article(content: str, target_words: int, topic: str) -> str:
+    """自动补充文章内容"""
+    
+    current_words = len(re.sub(r'[^\w]', '', content))
+    need_words = target_words - current_words
+    
+    # 补充策略：根据主题添加相关段落
+    supplement_prompt = f"""
+当前文章字数不足，需要补充约{need_words}字。
+
+主题：{topic}
+
+请补充以下内容（选择适合的角度）：
+1. 相关案例或数据
+2. 行业背景分析
+3. 技术细节说明
+4. 实操建议
+5. 常见问题解答
+
+要求：
+- 与原文风格一致
+- 内容有价值，不空洞
+- 自然衔接，不突兀
+
+输出补充内容（直接输出正文，不要标题）：
+"""
+    
+    supplement_content = llm_generate(supplement_prompt)
+    
+    # 插入到文章结尾前
+    return content + "\n\n" + supplement_content
+```
+
+**发布前必须验证**：
+```python
+# 在发布前检查
+verify_result = verify_word_count(article_content)
+
+if verify_result['status'] == 'insufficient':
+    # 自动补充
+    article_content = supplement_article(article_content, 1500, topic)
+    # 再次验证
+    verify_result = verify_word_count(article_content)
+    
+    if verify_result['status'] == 'insufficient':
+        # 补充失败，禁止发布
+        raise ValueError(f"字数验证失败：{verify_result['message']}")
+
+# 只有 status == 'valid' 才能发布
+```
+
+---
+
 ## Pitfalls
 
 1. **避免照搬原文**: 必须改写，不能直接复制
 2. **保持原创性**: 改写后要有新的观点或角度
 3. **敏感话题跳过**: 政治、负面、争议话题不改写
-4. **字数控制**: 公众号文章建议 1500-2500 字
+4. **⚠️ 字数验证必须执行**: 低于1500字禁止发布
 5. **标题长度**: 公众号标题建议 15-25 字
+6. **自动补充机制**: 字数不够时自动补充，最多补充2次
 
 ---
 
