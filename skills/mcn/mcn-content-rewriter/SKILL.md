@@ -305,6 +305,144 @@ tmp/content/
 
 ---
 
+## ⭐ 标题生成与评估（必须执行）
+
+**要求**：生成5个候选标题，综合评估选择最佳
+
+```python
+def generate_titles(topic: str, style: str = 'professional') -> list:
+    """生成5个候选标题"""
+    
+    # 标题公式库
+    formulas = [
+        '数字 + 结果 + 方法',
+        '人群 + 痛点 + 方案',
+        '对比 + 反差 + 原因',
+        '悬念 + 揭秘 + 价值',
+        '热点 + 观点 + 引发思考'
+    ]
+    
+    prompt = f"""
+根据以下话题，生成5个公众号文章标题：
+
+话题：{topic}
+
+使用不同的标题公式：
+1. 数字+结果+方法（如：3个方法让存款翻倍）
+2. 人群+痛点+方案（如：30岁没存款？这个计划适合你）
+3. 对比+反差+原因（如：同样工作5年，为什么他存款是你的10倍）
+4. 悬念+揭秘+价值（如：揭秘：配音演员的声音被谁偷走了）
+5. 热点+观点+引发思考（如：AI偷声风波：配音行业的饭碗还稳吗）
+
+要求：
+- 标题长度：15-25字
+- 吸引点击但不夸张
+- 符合公众号风格
+- 避免：标题党、负面词汇、敏感词
+
+输出格式（JSON）：
+[
+  {"formula": "数字+结果+方法", "title": "..."},
+  {"formula": "人群+痛点+方案", "title": "..."},
+  {"formula": "对比+反差+原因", "title": "..."},
+  {"formula": "悬念+揭秘+价值", "title": "..."},
+  {"formula": "热点+观点+引发思考", "title": "..."}
+]
+"""
+    
+    titles = llm_generate(prompt)
+    return parse_titles(titles)
+
+def evaluate_title(title: str, topic: str) -> dict:
+    """评估单个标题"""
+    
+    score = 0
+    reasons = []
+    
+    # 1. 长度检查（15-25字）
+    length = len(title)
+    if 15 <= length <= 25:
+        score += 20
+        reasons.append(f"长度合适({length}字)")
+    elif length < 15:
+        score -= 10
+        reasons.append(f"太短({length}字)")
+    else:
+        score -= 5
+        reasons.append(f"略长({length}字)")
+    
+    # 2. 吸引力关键词
+    attract_words = ['揭秘', '背后', '如何', '为什么', '方法', '真相', '关键', '核心']
+    for word in attract_words:
+        if word in title:
+            score += 10
+            reasons.append(f"含吸引力词'{word}'")
+    
+    # 3. 数字元素（具体化）
+    if re.search(r'\d+', title):
+        score += 15
+        reasons.append("含数字元素")
+    
+    # 4. 避免负面词
+    negative_words = ['失败', '惨', '悲剧', '死', '亡']
+    for word in negative_words:
+        if word in title:
+            score -= 20
+            reasons.append(f"含负面词'{word}'")
+    
+    # 5. 与主题相关性
+    topic_keywords = topic.split()
+    relevance = sum(1 for kw in topic_keywords if kw in title)
+    score += relevance * 5
+    reasons.append(f"主题相关度{relevance}")
+    
+    return {
+        'title': title,
+        'score': score,
+        'reasons': reasons,
+        'grade': 'A' if score >= 50 else 'B' if score >= 30 else 'C'
+    }
+
+def select_best_title(titles: list, topic: str) -> dict:
+    """选择最佳标题"""
+    
+    evaluations = []
+    
+    for title_info in titles:
+        eval_result = evaluate_title(title_info['title'], topic)
+        eval_result['formula'] = title_info['formula']
+        evaluations.append(eval_result)
+    
+    # 按分数排序
+    sorted_evals = sorted(evaluations, key=lambda x: x['score'], reverse=True)
+    
+    best = sorted_evals[0]
+    
+    return {
+        'best_title': best['title'],
+        'best_formula': best['formula'],
+        'best_score': best['score'],
+        'all_evaluations': sorted_evals,
+        'reason': best['reasons']
+    }
+```
+
+**标题生成流程**：
+```
+话题 → 生成5个候选标题 → 逐个评估 → 选择分数最高的
+```
+
+**评估维度**：
+| 维度 | 权重 | 说明 |
+|------|------|------|
+| 长度 | 20分 | 15-25字最佳 |
+| 吸引力词 | 10分/词 | 揭秘、如何、为什么等 |
+| 数字元素 | 15分 | 具体化、可信度 |
+| 负面词 | -20分/词 | 避免 |
+| 相关性 | 5分/关键词 | 与主题关联 |
+
+---
+
 ## ⭐ 字数验证（必须执行）
 
 **字数要求**：1500-2000字（硬性要求）
