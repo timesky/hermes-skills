@@ -48,7 +48,7 @@ source ~/.nvm/nvm.sh && nvm use 22
 opencli doctor  # 检查连接状态
 ```
 
-### 2. 抓取热搜
+### 2. 抓取热搜列表
 
 ```bash
 # 知乎热榜
@@ -57,7 +57,7 @@ opencli zhihu hot --limit 20 --format json
 # 微博热搜
 opencli weibo hot --limit 20 --format json
 
-# 抖音热榜
+# 抽音热榜
 opencli douyin hot --limit 20 --format json
 
 # 小红书推荐
@@ -70,7 +70,52 @@ opencli hackernews hot --limit 20 --format json
 opencli bilibili hot --limit 20 --format json
 ```
 
-### 3. 保存到知识库
+### 3. ⭐ 新增：提取文章摘要（提升选题质量）
+
+**使用 summarize-pro 技能**，对 Top 10 热搜文章提取摘要：
+
+```python
+# 对每个热搜话题，获取原文并提取摘要
+async def fetch_article_summary(url: str) -> str:
+    """获取文章并提取摘要"""
+    
+    # 1. 打开文章页面
+    opencli browser open url
+    sleep 3
+    
+    # 2. 获取正文内容（知乎/微博/抖音）
+    if 'zhihu.com' in url:
+        js = "document.querySelector('.RichContent-inner').innerText"
+    elif 'weibo.com' in url:
+        js = "document.querySelector('.WB_text').innerText"
+    elif 'douyin.com' in url:
+        js = "document.querySelector('.video-desc').innerText"
+    else:
+        js = "document.body.innerText.substring(0, 3000)"
+    
+    content = opencli browser eval js
+    
+    # 3. 使用 summarize-pro 提取摘要
+    # 加载 summarize-pro 技能，生成 executive summary
+    summary = await summarize_pro(content, style="executive", length="medium")
+    
+    return summary
+
+# 批量处理 Top 10
+for topic in hot_list[:10]:
+    topic['summary'] = await fetch_article_summary(topic['url'])
+```
+
+**摘要输出格式**：
+```markdown
+### 话题摘要
+
+| 排名 | 标题 | 热度 | 摘要（200字） | 链接 |
+|------|------|------|---------------|------|
+| 1 | xxx | 12345 | 核心观点：... 主要论点：... | [查看](url) |
+```
+
+### 4. 保存到知识库
 
 生成文件格式：
 ```markdown

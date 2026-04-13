@@ -117,7 +117,46 @@ def generate_wechat_article(topic: dict, style: str = 'professional'):
     return llm_generate(prompt)
 ```
 
-### 4. 保存改写结果
+### 4. ⭐ 新增：去AI化重写（提升阅读体验）
+
+**使用 humanizer-zh 技能**，对生成的文章进行去AI化处理：
+
+```python
+# 在文章生成后，进行去AI化重写
+async def humanize_article(article: str) -> str:
+    """去AI化处理，使文章更自然"""
+    
+    # 1. 加载 humanizer-zh 技能
+    # 检测 AI 写作痕迹：
+    # - 夸大象征意义（"标志着"、"具有重要意义"）
+    # - 公式化结构（"三段式法则"）
+    # - AI词汇（"此外"、"至关重要"）
+    # - 宣传性语言（"令人叹为观止"）
+    # - 模糊归因（"专家认为"）
+    
+    # 2. 执行去AI化重写
+    humanized = await humanizer_zh(article)
+    
+    # 3. 评分验证（目标：45+分）
+    score = await evaluate_humanization(humanized)
+    
+    if score < 45:
+        # 重新处理
+        humanized = await humanizer_zh(article, iteration=2)
+    
+    return humanized
+```
+
+**去AI化检查清单**：
+- ✓ 删除"作为...的证明"（夸大象征）
+- ✓ 替换"此外"为直接陈述
+- ✓ 打破三段式列举（改为两项或自然叙述）
+- ✓ 删除过度破折号
+- ✓ 删除模糊归因（"专家认为"→具体来源）
+- ✓ 添加个人观点和真实感受
+- ✓ 变化句子节奏（长短混搭）
+
+### 5. 保存改写结果
 
 ```markdown
 ---

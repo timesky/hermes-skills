@@ -75,6 +75,35 @@ PUBLISH_DIR = KB_ROOT/tmp/publish/
 
 ---
 
+## ⭐ 新增流程：去AI化验证
+
+发布前必须确认文章已经过 humanizer-zh 处理：
+
+```python
+def verify_humanization(article_path: str) -> bool:
+    """验证文章是否已去AI化"""
+    
+    content = open(article_path).read()
+    
+    # 检查 humanizer-zh 的评分
+    # 文件中应有评分记录：## Humanization Score: XX/50
+    
+    score_match = re.search(r'Humanization Score: (\d+)/50', content)
+    
+    if score_match:
+        score = int(score_match.group(1))
+        if score >= 45:
+            return True
+        else:
+            print(f"⚠️ 去AI化评分不足：{score}/50，建议重新处理")
+            return False
+    else:
+        print("⚠️ 文章未进行去AI化处理，请先使用 humanizer-zh")
+        return False
+```
+
+---
+
 ## 使用流程
 
 ### 1. 准备工作
