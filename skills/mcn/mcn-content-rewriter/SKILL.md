@@ -153,32 +153,78 @@ async def humanize_article(article: str) -> str:
 
 **字数要求**：1500-2000字
 
-```python
-def check_article_quality(article: str) -> dict:
-    """检查文章质量"""
-    
-    char_count = len(article)
-    
-    # 检查图片数量（需要 3-5 张）
-    img_count = article.count('<img')
-    
-    return {
-        'char_count': char_count,
-        '达标': 1500 <= char_count <= 2000,
-        'img_count': img_count,
-        'img_达标': 3 <= img_count <= 5
-    }
-```
-
-**配图要求**：
+**配图要求**（每篇文章专属）：
 - 需要配图 3-5 张
 - 第一张作为封面（900x500px）
-- 图片来源：公众号素材库（已上传）
-- 插入位置：每个大段落后
+- 图片必须与文章主题相关
+- 不能使用通用图片库交叉使用
+
+```python
+def search_article_images(topic: str, count: int = 4) -> list:
+    """根据文章主题搜索专属配图"""
+    
+    from hermes_tools import web_search
+    
+    # 搜索相关图片
+    search_query = f"{topic} 图片"
+    results = web_search(search_query, limit=count)
+    
+    images = []
+    for item in results['data']['web']:
+        # 提取图片URL
+        if item.get('url'):
+            images.append({
+                'source_url': item['url'],
+                'description': item.get('title', ''),
+                'topic': topic
+            })
+    
+    return images
+
+def upload_images_to_wechat(images: list, access_token: str) -> list:
+    """上传图片到公众号素材库"""
+    
+    import urllib.request
+    
+    media_ids = []
+    upload_url = f"https://api.weixin.qq.com/cgi-bin/material/add_material?access_token={access_token}&type=image"
+    
+    for img in images:
+        # 下载图片
+        resp = urllib.request.urlopen(img['source_url'])
+        img_data = resp.read()
+        
+        # 上传到素材库
+        # ... 上传逻辑
+        
+        media_ids.append({
+            'media_id': result['media_id'],
+            'topic': img['topic']
+        })
+    
+    return media_ids
+```
 
 ---
 
-### 6. 保存改写结果
+### 6. 配图流程（每篇文章专属）
+
+```
+文章主题 → 搜索相关图片 → 下载 → 上传素材库 → 引入文章
+   ↓           ↓            ↓         ↓           ↓
+华为Pura   华为手机图    下载      上传        文章内引用
+神舟十九   航天火箭图    下载      上传        文章内引用
+中奖离职   职场彩票图    下载      上传        文章内引用
+```
+
+**注意**：
+- 每篇文章配图必须与主题强相关
+- 不使用通用图片库（dev_img_1.jpg 等）
+- 图片上传后记录 media_id 与文章关联
+
+---
+
+### 7. 保存改写结果
 
 ```markdown
 ---

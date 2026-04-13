@@ -443,9 +443,59 @@ type: publish-log
 
 1. **⚠️ IP白名单必须配置**: 公众号后台 → 基本配置 → IP白名单 → 添加当前机器 IP（错误码 40164）
 2. **⚠️ JSON编码必须用 ensure_ascii=False**: 否则中文会变成 unicode 编码显示
-   ```python
-   # 正确写法
-   json.dumps(draft_data, ensure_ascii=False).encode('utf-8')
+3. **⚠️ 标题长度限制**: 约160字节（约60中文字）
+4. **⚠️ 外部图片不被接受**: 公众号不接受 Unsplash 等外部图片 URL
+5. **⚠️ 每篇文章配图必须专属**: 不能使用通用图片库交叉使用
+
+---
+
+## 配图解决方案
+
+### 方案 A：手动上传（推荐）
+
+```
+搜索主题图片 → 下载 → 上传素材库 → 记录 media_id → 文章引用
+```
+
+### 方案 B：AI 生成图片
+
+```python
+# 使用 DALL-E 或 Stable Diffusion 生成
+def generate_article_images(topic: str) -> list:
+    """AI 生成文章专属配图"""
+    
+    prompts = [
+        f"{topic} cover, modern, clean, tech style",
+        f"{topic} illustration, minimalist",
+        f"{topic} scene, professional"
+    ]
+    
+    # 调用 AI 图片生成 API
+    # 上传到素材库
+    
+    return media_ids
+```
+
+### 方案 C：素材库分类管理
+
+```yaml
+# ~/.hermes/mcn_config.yaml
+images:
+  categories:
+    科技:
+      - media_id: xxx  # 华为相关
+      - media_id: xxx  # 手机相关
+    
+    航天:
+      - media_id: xxx  # 火箭相关
+      - media_id: xxx  # 航天员相关
+    
+    职场:
+      - media_id: xxx  # 办公相关
+      - media_id: xxx  # 金钱相关
+```
+
+---
    
    # 错误写法（中文变乱码）
    json.dumps(draft_data).encode('utf-8')
