@@ -195,6 +195,51 @@ git push
 
 ---
 
+## 安装第三方技能流程
+
+### 方法1：从 GitHub 克隆
+
+```bash
+cd /Users/timesky/backup/hermes_agent_bak/hermes-skills
+
+# 克隆到对应分类
+git clone https://github.com/xxx/skill-name.git skills/<category>/skill-name --depth 1
+
+# 删除嵌套的 .git 目录（避免 Git 仓库冲突）
+rm -rf skills/<category>/skill-name/.git
+
+# 更新 .gitignore 添加排除
+echo "skills/<category>/skill-name/" >> .gitignore
+
+# 或使用反排除（如果该分类已整体排除）
+sed -i '' '/skills\/<category>\//a\
+!skills/<category>/skill-name/
+' .gitignore
+
+git add .gitignore
+git commit -m "安装第三方技能: skill-name"
+git push
+```
+
+### 方法2：从压缩包下载
+
+```bash
+# 下载并解压
+curl -L "<download-url>" -o /tmp/skill.zip
+unzip /tmp/skill.zip -d /Users/timesky/backup/hermes_agent_bak/hermes-skills/skills/<category>/skill-name
+
+# 更新 .gitignore（同上）
+```
+
+### 第三方技能示例
+
+| 技能 | 分类 | 功能 |
+|------|------|------|
+| humanizer-zh | content | 去除 AI 写作痕迹 |
+| summarize-pro | productivity | 20种摘要格式 |
+
+---
+
 ## Pitfalls
 
 ### 1. 不要链接单个技能目录
