@@ -39,6 +39,32 @@ HOTSPOT_DIR = KB_ROOT/tmp/hotspot/
 
 ---
 
+## ⭐ 领域配置（可自定义）
+
+默认关注领域：
+```yaml
+# ~/.hermes/mcn_config.yaml
+domains:
+  - name: 科技
+    keywords: [科技, 数码, 手机, AI, 互联网]
+    platforms: [weibo, zhihu]
+    limit: 10
+  
+  - name: 编程
+    keywords: [编程, 代码, 开发, 程序员, Python]
+    platforms: [zhihu, hackernews]
+    limit: 10
+  
+  - name: 机器人
+    keywords: [机器人, 宇树, 人形机器人, AI机器人]
+    platforms: [weibo, zhihu]
+    limit: 10
+```
+
+修改配置后重启定时任务生效。
+
+---
+
 ## 使用流程
 
 ### 1. 启动 OpenCLI Daemon

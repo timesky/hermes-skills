@@ -482,6 +482,15 @@ type: publish-log
 ## Pitfalls
 
 1. **⚠️ IP白名单必须配置**: 公众号后台 → 基本配置 → IP白名单 → 添加当前机器 IP（错误码 40164）
+2. **⚠️ JSON编码必须用 ensure_ascii=False**: 否则中文会变成 unicode 编码显示
+   ```python
+   # 正确写法
+   json.dumps(draft_data, ensure_ascii=False).encode('utf-8')
+   
+   # 错误写法（中文变乱码）
+   json.dumps(draft_data).encode('utf-8')
+   ```
+3. **⚠️ 标题长度限制**: 64字节（约21中文字），超限报错 45003
 2. **⚠️ 部分API需授权**: 错误码 48001 表示权限不足，需要在后台开通「用户管理」「数据分析」等权限
 3. **草稿创建正常**: 配置白名单后，`/cgi-bin/draft/add` API 可正常使用
 2. **Shell 转义问题**: JS 代码要保存到文件，不要直接在命令行写
