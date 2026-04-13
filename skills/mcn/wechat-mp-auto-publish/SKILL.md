@@ -44,6 +44,35 @@ config_file: ~/.hermes/wechat_mp_config.yaml
 
 ---
 
+## 配置文件
+
+统一配置路径：`~/.hermes/mcn_config.yaml`
+
+```yaml
+# 热点调研
+hotspot:
+  domains: [科技, 编程, 机器人]  # 关注领域
+  platforms: [weibo, zhihu, toutiao, huxiu, juejin]  # 调研平台
+  top_n: 10  # 每领域 Top N
+
+# 公众号发布
+publish:
+  accounts:
+    main:
+      appid: wx47533ce9c8854fb5
+      secret: 2b990fc5247bfb98b71dfe8ab038eb2f
+      author: TimeSky
+      default: true
+
+# 文章要求
+article:
+  min_chars: 1500
+  max_chars: 2000
+  min_images: 3
+```
+
+---
+
 ## 流程概览
 
 ```

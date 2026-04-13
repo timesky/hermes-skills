@@ -106,95 +106,55 @@ def verify_humanization(article_path: str) -> bool:
 
 ## 配置文件位置
 
+**统一配置**：`~/.hermes/mcn_config.yaml`
+
 ```yaml
-# ~/.hermes/wechat_mp_config.yaml
-appid: wx47533ce9c8854fb5
-secret: 2b990fc5247bfb98b71dfe8ab038eb2f
-author: TimeSky
-
-# 封面提示词模板
-cover_prompts:
-  科技: "tech cover, blue gradient, minimalist, abstract shapes, clean design"
-  商业: "business cover, dark blue, professional, corporate style, modern"
-  生活: "lifestyle cover, warm colors, nature elements, soft, peaceful"
-  热点: "news cover, bold colors, dynamic, modern, attention-grabbing"
-
-# 文章风格模板
-article_styles:
-  科技: "专业、客观、数据驱动"
-  商业: "深度分析、行业视角"
-  生活: "轻松、实用、贴近日常"
-  热点: "快速、观点鲜明、引发讨论"
+publish:
+  accounts:
+    main:
+      name: "TimeSky主号"
+      appid: wx47533ce9c8854fb5
+      secret: 2b990fc5247bfb98b71dfe8ab038eb2f
+      author: TimeSky
+      default: true
+    
+    # 可添加更多账号
+    secondary:
+      name: "副号"
+      appid: wxXXXXXXXX
+      secret: XXXXXXXX
+      author: 作者名
+      default: false
 ```
+
+**旧配置**：`~/.hermes/wechat_mp_config.yaml`（保留兼容）
 
 ---
 
-## 推荐方案：使用 wechatpy SDK
-
-配置已存在，推荐使用 wechatpy 进行 API 发布：
+## 多账号支持
 
 ```python
-#!/usr/bin/env python3
-"""微信公众号文章发布脚本"""
-
-import yaml
-from pathlib import Path
-from wechatpy import WeChatClient
-
-# 读取配置
-CONFIG_PATH = Path.home() / ".hermes" / "wechat_mp_config.yaml"
-config = yaml.safe_load(CONFIG_PATH.read_text())
-
-APPID = config['appid']
-SECRET = config['secret']
-AUTHOR = config['author']
-
-client = WeChatClient(APPID, SECRET)
-
-def publish_article(title, content_html, cover_path, digest=''):
-    """发布文章到公众号草稿箱"""
+def get_account(account_name: str = None) -> dict:
+    """获取公众号账号配置"""
     
-    # 1. 上传封面图（永久素材）
-    with open(cover_path, 'rb') as f:
-        media = client.material.add('image', f)
-        thumb_id = media['media_id']
+    config = yaml.safe_load(Path.home() / ".hermes" / "mcn_config.yaml")
     
-    # 2. 创建草稿
-    articles = [{
-        'title': title,
-        'author': AUTHOR,
-        'content': content_html,
-        'thumb_media_id': thumb_id,
-        'digest': digest,
-    }]
-    draft_id = client.draft.add(articles)
+    accounts = config['publish']['accounts']
     
-    return {
-        'draft_id': draft_id,
-        'status': 'success'
-    }
-
-def get_article_stats(begin_date, end_date):
-    """获取文章统计数据"""
+    if account_name:
+        return accounts.get(account_name)
     
-    # 获取文章阅读数据
-    datacube = client.datacube
+    # 返回默认账号
+    for name, acc in accounts.items():
+        if acc.get('default'):
+            return acc
     
-    # 用户分析
-    user_summary = datacube.get_user_summary(begin_date, end_date)
-    
-    # 文章分析
-    article_summary = datacube.get_article_summary(begin_date, end_date)
-    
-    return {
-        'users': user_summary,
-        'articles': article_summary
-    }
+    return accounts.get('main')  # fallback
 ```
 
 ---
 
-## 使用流程
+## Pitfalls
 
 ### 1. 准备工作
 

@@ -39,29 +39,55 @@ HOTSPOT_DIR = KB_ROOT/tmp/hotspot/
 
 ---
 
-## ⭐ 领域配置（可自定义）
+## ⭐ 配置文件
 
-默认关注领域：
+配置路径：`~/.hermes/mcn_config.yaml`
+
 ```yaml
-# ~/.hermes/mcn_config.yaml
-domains:
-  - name: 科技
-    keywords: [科技, 数码, 手机, AI, 互联网]
-    platforms: [weibo, zhihu]
-    limit: 10
+# 热点调研配置
+hotspot:
+  domains:
+    - name: 科技
+      keywords: [科技, 数码, 手机, AI]
+      platforms: [weibo, zhihu, toutiao, huxiu]
+      top_n: 10
+    
+    - name: 编程
+      keywords: [编程, 代码, 开发, 程序员]
+      platforms: [zhihu, juejin, hackernews, x]
+      top_n: 10
+    
+    - name: 机器人
+      keywords: [机器人, 宇树, 人形机器人]
+      platforms: [weibo, zhihu, toutiao]
+      top_n: 10
   
-  - name: 编程
-    keywords: [编程, 代码, 开发, 程序员, Python]
-    platforms: [zhihu, hackernews]
-    limit: 10
-  
-  - name: 机器人
-    keywords: [机器人, 宇树, 人形机器人, AI机器人]
-    platforms: [weibo, zhihu]
-    limit: 10
+  platforms:
+    weibo:
+      enabled: true
+      command: "opencli weibo hot --limit {limit} --format json"
+    
+    zhihu:
+      enabled: true
+      command: "opencli zhihu hot --limit {limit} --format json"
+    
+    # 更多平台配置...
 ```
 
-修改配置后重启定时任务生效。
+**修改配置后重启定时任务生效**。
+
+---
+
+## 支持的调研平台
+
+| 平台 | OpenCLI 命令 | 说明 |
+|------|--------------|------|
+| 微博 | `opencli weibo hot` | 热搜榜 |
+| 知乎 | `opencli zhihu hot` | 热榜 |
+| 头条 | `opencli toutiao hot` | 热榜 |
+| X | 需认证 | 暂不支持 |
+| 虎嗅 | web 搜索 | 需用 web_search |
+| 掘金 | web 搜索 | 需用 web_search |
 
 ---
 

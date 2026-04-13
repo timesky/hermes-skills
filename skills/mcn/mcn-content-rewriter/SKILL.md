@@ -126,37 +126,59 @@ def generate_wechat_article(topic: dict, style: str = 'professional'):
 async def humanize_article(article: str) -> str:
     """去AI化处理，使文章更自然"""
     
-    # 1. 加载 humanizer-zh 技能
-    # 检测 AI 写作痕迹：
-    # - 夸大象征意义（"标志着"、"具有重要意义"）
-    # - 公式化结构（"三段式法则"）
-    # - AI词汇（"此外"、"至关重要"）
-    # - 宣传性语言（"令人叹为观止"）
-    # - 模糊归因（"专家认为"）
-    
-    # 2. 执行去AI化重写
+    # 加载 humanizer-zh 技能
     humanized = await humanizer_zh(article)
     
-    # 3. 评分验证（目标：45+分）
+    # 评分验证（目标：45+分）
     score = await evaluate_humanization(humanized)
     
     if score < 45:
-        # 重新处理
         humanized = await humanizer_zh(article, iteration=2)
     
     return humanized
 ```
 
 **去AI化检查清单**：
-- ✓ 删除"作为...的证明"（夸大象征）
+- ✓ 删除"作为...的证明"
 - ✓ 替换"此外"为直接陈述
-- ✓ 打破三段式列举（改为两项或自然叙述）
+- ✓ 打破三段式列举
 - ✓ 删除过度破折号
-- ✓ 删除模糊归因（"专家认为"→具体来源）
-- ✓ 添加个人观点和真实感受
-- ✓ 变化句子节奏（长短混搭）
+- ✓ 删除模糊归因
+- ✓ 添加个人观点
+- ✓ 变化句子节奏
 
-### 5. 保存改写结果
+---
+
+### 5. ⭐ 字数与配图检查
+
+**字数要求**：1500-2000字
+
+```python
+def check_article_quality(article: str) -> dict:
+    """检查文章质量"""
+    
+    char_count = len(article)
+    
+    # 检查图片数量（需要 3-5 张）
+    img_count = article.count('<img')
+    
+    return {
+        'char_count': char_count,
+        '达标': 1500 <= char_count <= 2000,
+        'img_count': img_count,
+        'img_达标': 3 <= img_count <= 5
+    }
+```
+
+**配图要求**：
+- 需要配图 3-5 张
+- 第一张作为封面（900x500px）
+- 图片来源：公众号素材库（已上传）
+- 插入位置：每个大段落后
+
+---
+
+### 6. 保存改写结果
 
 ```markdown
 ---
