@@ -72,38 +72,56 @@ opencli bilibili hot --limit 20 --format json
 
 ### 3. ⭐ 新增：提取文章摘要（提升选题质量）
 
-**使用 summarize-pro 技能**，对 Top 10 热搜文章提取摘要：
+**⚠️ 重要发现**：OpenCLI browser 无法直接获取微博内容（需要登录）。
+
+**解决方案**：使用 Hermes `web_search + web_extract` 工具获取文章内容，再生成摘要。
 
 ```python
-# 对每个热搜话题，获取原文并提取摘要
-async def fetch_article_summary(url: str) -> str:
-    """获取文章并提取摘要"""
-    
-    # 1. 打开文章页面
-    opencli browser open url
-    sleep 3
-    
-    # 2. 获取正文内容（知乎/微博/抖音）
-    if 'zhihu.com' in url:
-        js = "document.querySelector('.RichContent-inner').innerText"
-    elif 'weibo.com' in url:
-        js = "document.querySelector('.WB_text').innerText"
-    elif 'douyin.com' in url:
-        js = "document.querySelector('.video-desc').innerText"
-    else:
-        js = "document.body.innerText.substring(0, 3000)"
-    
-    content = opencli browser eval js
-    
-    # 3. 使用 summarize-pro 提取摘要
-    # 加载 summarize-pro 技能，生成 executive summary
-    summary = await summarize_pro(content, style="executive", length="medium")
-    
-    return summary
+from hermes_tools import web_search, web_extract
 
-# 批量处理 Top 10
-for topic in hot_list[:10]:
-    topic['summary'] = await fetch_article_summary(topic['url'])
+def extract_hotspot_summaries(hotspots: list) -> list:
+    """提取热搜文章摘要"""
+    
+    summaries = []
+    
+    for item in hotspots[:5]:  # Top 5
+        title = item['title']
+        
+        # 1. 搜索相关文章
+        result = web_search(title, limit=3)
+        
+        if result['data']['web']:
+            urls = [article['url'] for article in result['data']['web'][:2]]
+            
+            # 2. 提取文章内容
+            articles = web_extract(urls)
+            
+            for article in articles['results']:
+                if article.get('content') and not article.get('error'):
+                    content = article['content'][:2000]
+                    
+                    # 3. 生成摘要（summarize-pro executive 格式）
+                    summary = {
+                        'title': title,
+                        'source': article.get('title', '未知'),
+                        'url': article.get('url', ''),
+                        'content': content[:500],  # 核心内容
+                        'heat': item['heat']
+                    }
+                    
+                    summaries.append(summary)
+                    break
+    
+    return summaries
+```
+
+**摘要输出格式**：
+```markdown
+### 话题摘要
+
+| 排名 | 标题 | 热度 | 摘要（200字） | 链接 |
+|------|------|------|---------------|------|
+| 1 | xxx | 12345 | 核心观点：... 主要论点：... | [查看](url) |
 ```
 
 **摘要输出格式**：
