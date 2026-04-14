@@ -238,14 +238,34 @@ image_generation:
 
 **⚠️ API 调用方式（重要 - 已优化）**：
 
-使用 **假地址 webHook** + 轮询 result 模式（避免超时浪费积分）：
+使用 **curl 命令** + **假地址 webHook** + 轮询 result 模式：
 
 ```
+⚠️ 关键发现：requests 库会导致参数丢失（后台显示"无数据"），必须用 curl！
+
+正确方式（curl）：
+curl -s -X POST https://grsai.dakka.com.cn/v1/draw/nano-banana \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer {API_KEY}" \
+  -d '{"model":"nano-banana-fast","prompt":"...","webHook":"http://192.168.1.1","shutProgress":false}'
+  
+→ 返回 {"code":0,"data":{"id":"task_id"}}
+→ 后台正确显示 prompt 和请求参数
+
+错误方式（requests库）：
+requests.post(url, headers=headers, json=payload)
+→ 积分扣除，但后台显示"无数据"
+→ 参数丢失，任务可能失败
+```
+
+**提交参数**：
+```
 1. POST /v1/draw/nano-banana 
-   {"model": "nano-banana-fast", "prompt": "...", "webHook": "http://192.168.1.1"}
+   {"model": "nano-banana-fast", "prompt": "...", "webHook": "http://192.168.1.1", "shutProgress": false}
    → 返回 {"data": {"id": "task_id"}}
    
-   ⚠️ 关键：webHook 必须是假地址（如 http://192.168.1.1），不能是 "-1" 或空！
+   ⚠️ webHook 必须是假地址（如 http://192.168.1.1），不能是 "-1" 或空！
+   ⚠️ 必须用 curl 命令，不能用 requests 库！
 
 2. POST /v1/draw/result {"id": "task_id"}  （轮询，最多60次，间隔5秒）
    → status: "running" → 继续等待
@@ -257,10 +277,11 @@ image_generation:
 **积分节省要点**：
 | 问题 | 解决方案 |
 |------|----------|
+| **requests库参数丢失** | **必须用 curl 命令提交** |
 | 重复提交相同任务 | task_id持久化到tasks.json |
 | 超时后重新提交所有 | 检查已有task_id，增量继续 |
 | 相同prompt失败后继续 | 换prompt变体，不重复 |
-| SSL超时触发重试 | 用terminal+curl而非execute_code |
+| execute_code超时中断 | 用terminal+curl或subprocess.run(curl) |
 
 **执行脚本**：
 ```bash
