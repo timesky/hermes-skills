@@ -207,9 +207,156 @@ def get_notify_info(task_id):
     task_data = json.load(open(json_file))
     return task_data.get('notify', {})
 
+def archive_task(task_id):
+    """归档任务（发布完成后）"""
+    import shutil
+    archive_dir = TASKS_DIR + "/archive"
+    os.makedirs(archive_dir, exist_ok=True)
+    
+    json_file = TASKS_DIR + "/" + task_id + "_task.json"
+    md_file = TASKS_DIR + "/" + task_id + "_task.md"
+    
+    if os.path.exists(json_file):
+        shutil.move(json_file, archive_dir + "/" + task_id + "_task.json")
+        print("✓ 已归档任务 JSON: " + task_id)
+    
+    if os.path.exists(md_file):
+        shutil.move(md_file, archive_dir + "/" + task_id + "_task.md")
+        print("✓ 已归档任务 MD: " + task_id)
+    
+    return True
+
+def check_incomplete_tasks():
+    """检查未完成的任务（选题前调用）"""
+    if not os.path.exists(TASKS_DIR):
+        return []
+    
+    incomplete = []
+    
+    for f in os.listdir(TASKS_DIR):
+        if f.endswith('_task.json'):
+            task_data = json.load(open(TASKS_DIR + "/" + f))
+            
+            # 检查是否未完成
+            if task_data.get('status') in ['initiated', 'in_progress']:
+                # 检查创建时间（超过2小时的视为过期）
+                created = datetime.strptime(task_data['created'], "%Y-%m-%d %H:%M")
+                age_hours = (datetime.now() - created).total_seconds() / 3600
+                
+                incomplete.append({
+                    'task_id': task_data['task_id'],
+                    'topic': task_data['topic'],
+                    'created': task_data['created'],
+                    'status': task_data['status'],
+                    'age_hours': age_hours,
+                    'notify': task_data.get('notify', {})
+                })
+    
+    return incomplete
+
+def notify_incomplete_tasks(incomplete_tasks):
+    """推送未完成任务到飞书"""
+    if not incomplete_tasks:
+        return
+    
+    # 加载环境变量
+    load_env()
+    
+    FEISHU_CHAT_ID = os.environ.get('FEISHU_CHAT_ID', '')
+    FEISHU_APP_ID = os.environ.get('FEISHU_APP_ID', '')
+    FEISHU_APP_SECRET = os.environ.get('FEISHU_APP_SECRET', '')
+    
+    if not all([FEISHU_CHAT_ID, FEISHU_APP_ID, FEISHU_APP_SECRET]):
+        print("⚠️ 飞书环境变量未配置，无法推送")
+        return
+    
+    import ssl
+    import urllib.request
+    
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    
+    # 获取 token
+    data = json.dumps({"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET}).encode('utf-8')
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal",
+        data=data, headers={'Content-Type': 'application/json'}
+    )
+    resp = urllib.request.urlopen(req, context=ctx)
+    token = json.loads(resp.read().decode('utf-8'))['app_access_token']
+    
+# 构建消息
+    message = "⚠️ 发现未完成的 MCN 任务\n\n"
+    message += "请确认是否重新开始：\n\n"
+    
+    for task in incomplete_tasks:
+        message += "- **" + task['topic'] + "**\n"
+        message += "  创建时间：" + task['created'] + "\n"
+        message += "  状态：" + task['status'] + "\n"
+        age_str = "{:.1f}".format(task['age_hours'])
+        message += "  时长：" + age_str + " 小时\n\n"
+    
+    message += "---\n"
+    message += "回复 '重新开始' 继续执行\n"
+    message += "回复 '放弃' 归档旧任务"
+    
+    # 发送
+    url = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+    data = json.dumps({
+        "receive_id": FEISHU_CHAT_ID,
+        "msg_type": "text",
+        "content": json.dumps({"text": message}, ensure_ascii=False)
+    }, ensure_ascii=False).encode('utf-8')
+    
+    req = urllib.request.Request(url, data=data, headers={
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+    })
+    
+    resp = urllib.request.urlopen(req, context=ctx, timeout=10)
+    result = json.loads(resp.read().decode('utf-8'))
+    
+    if result.get('code') == 0:
+        print("✓ 已推送未完成任务通知到飞书")
+    else:
+        print("✗ 推送失败: " + str(result))
+
+def reset_for_new_task():
+    """重置环境，准备新任务（选题前调用）"""
+    print("=== 检查未完成任务 ===")
+    
+    incomplete = check_incomplete_tasks()
+    
+    if incomplete:
+        count = len(incomplete)
+        print("发现 " + str(count) + " 个未完成任务:")
+        for task in incomplete:
+            print("  - " + task['task_id'] + ": " + task['topic'] + " (" + task['status'] + ")")
+        
+        # 推送飞书
+        notify_incomplete_tasks(incomplete)
+        
+        return False  # 需要人工确认
+    else:
+        print("✓ 无未完成任务")
+        return True  # 可以开始新任务
+
+def load_env():
+    """从 .env 文件加载环境变量"""
+    env_path = os.path.expanduser('~/.hermes/.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    if key not in os.environ:
+                        os.environ[key] = value
+
 def main():
     parser = argparse.ArgumentParser(description='任务管理器')
-    parser.add_argument('action', choices=['init', 'update', 'status', 'list', 'record', 'check', 'notify'])
+    parser.add_argument('action', choices=['init', 'update', 'status', 'list', 'record', 'check', 'notify', 'archive', 'reset'])
     parser.add_argument('--topic', type=str)
     parser.add_argument('--task-id', type=str)
     parser.add_argument('--step', type=str)
@@ -270,6 +417,21 @@ def main():
             print("  线程 ID: " + notify.get('thread_id', 'N/A'))
         else:
             print("✗ 未找到推送信息")
+    
+    elif args.action == 'archive':
+        if not args.task_id:
+            print("✗ 需要 --task-id")
+            sys.exit(1)
+        archive_task(args.task_id)
+    
+    elif args.action == 'reset':
+        can_start = reset_for_new_task()
+        if can_start:
+            print("✓ 可以开始新任务")
+            sys.exit(0)
+        else:
+            print("⚠️ 需要人工确认")
+            sys.exit(2)  # 特殊退出码表示需要确认
     
     else:
         parser.print_help()

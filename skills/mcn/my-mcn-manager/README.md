@@ -19,8 +19,8 @@ cd ~/.hermes/skills/mcn/my-mcn-manager
 # 完整流程
 python scripts/run-full-workflow.py
 
-# 只调研热点
-python scripts/run-hotspot-research.py --date 2026-04-14
+# 只调研热点（整合多渠道）
+python scripts/run-hotspot-research.py
 
 # 分析选题
 python scripts/run-topic-analysis.py --date 2026-04-14 --top 5
@@ -34,6 +34,26 @@ python scripts/validate-article.py --article article.md
 
 ---
 
+## 渠道优先级策略（重要更新）
+
+热点抓取已整合多渠道，按精准度分级：
+
+| 优先级 | 平台 | 分类方式 | 抓取方式 |
+|--------|------|----------|----------|
+| **P1（最精准）** | 虎嗅前沿科技 | 直接分类URL | `opencli web read` |
+| **P1** | 虎嗅3C数码 | 直接分类URL | `opencli web read` |
+| **P1** | 掘金 | 整站开发 | `opencli web read` |
+| **P2** | 微博 | category过滤 | 过滤 `互联网`/`民生新闻` |
+| **P3** | 36氪 | API | `opencli 36kr news` |
+| **P4** | 知乎/抖音 | 关键词匹配 | 无分类 |
+
+**OpenCLI 环境要求**：
+- **Node版本**：必须用 v20（v22有undici兼容问题，v18不支持styleText）
+- 安装：`nvm use 20 && npm install -g @jackwener/opencli@1.6.0`
+- 验证：`opencli weibo hot --limit 10 --format json`
+
+---
+
 ## 工作流说明
 
 ```
@@ -42,41 +62,55 @@ python scripts/validate-article.py --article article.md
 │  热点调研   │   │  选题分析   │   │  内容生成   │   │  发布草稿   │
 └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘
      ↓                   ↓                   ↓                   ↓
-tmp/hotspot/      tmp/topic/          tmp/content/        公众号草稿箱
+mcn/hotspot/      mcn/topic/          mcn/content/        公众号草稿箱
 YYYY-MM-DD/       recommend.md        article.md          media_id: xxx
+```
+
+---
+
+## 任务清理机制（新增）
+
+### 发布完成后归档
+
+```bash
+# 归档已完成的任务
+python scripts/task_manager.py archive --task-id 20260414_170000
+```
+
+### 选题前检查未完成任务
+
+```bash
+# 检查是否有未完成的任务
+python scripts/task_manager.py reset
+
+# 如果有未完成任务，会推送飞书人工确认
+# 退出码 2 表示需要人工确认
 ```
 
 ---
 
 ## 脚本说明
 
-### run-hotspot-research.py
+### run-hotspot-research.py（已更新）
 
-**功能**：抓取多平台热搜
+**功能**：整合抓取虎嗅/36kr/掘金/微博等多平台热搜
 
-**参数**：
-- `--date`: 指定日期（默认今天）
-- `--platforms`: 指定平台（逗号分隔）
-- `--limit`: 每个平台抓取条数（默认 20）
+**渠道优先级**：
+- P1: 虎嗅科技/3C、掘金（直接分类URL）
+- P2: 微博（category过滤）
+- P3: 36kr（API）
+- P4: 知乎/抖音（关键词匹配）
 
 **示例**：
 ```bash
-# 抓取今天的热搜
+# 抓取今天的所有渠道热点
 python scripts/run-hotspot-research.py
-
-# 抓取指定日期
-python scripts/run-hotspot-research.py --date 2026-04-14
-
-# 只抓取微博和知乎
-python scripts/run-hotspot-research.py --platforms weibo,zhihu --limit 30
 ```
 
 **输出**：
 ```
-tmp/hotspot/2026-04-14/
-├── weibo-hotspot.md
-├── zhihu-hotspot.md
-└── toutiao-hotspot.md
+mcn/hotspot/2026-04-14/
+└── hotspot-aggregated.md  # 所有渠道聚合
 ```
 
 ---
@@ -92,96 +126,65 @@ tmp/hotspot/2026-04-14/
 
 **示例**：
 ```bash
-# 分析今天的热搜
-python scripts/run-topic-analysis.py
-
-# 分析指定日期，推荐 3 个主题
-python scripts/run-topic-analysis.py --date 2026-04-14 --top 3
-```
-
-**输出**：
-```markdown
-# MCN 选题分析报告
-
-## 推荐主题 (Top 5)
-
-| 排名 | 主题 | 领域 | 热度 | 综合评分 | 来源 |
-|------|------|------|------|----------|------|
-| 1 | xxx | 科技 | 12345 | 85.5 | [查看](url) |
+python scripts/run-topic-analysis.py --date 2026-04-14 --top 5
 ```
 
 ---
 
-### publish_after_confirm.py
+### task_manager.py（已更新）
 
-**功能**：确认主题后生成文章并发布
+**功能**：任务生命周期管理
 
-**参数**：
-- `<主题>`: 文章主题（必需）
-- `--style`: 文章风格（professional/casual/story）
+**新增命令**：
+- `archive`: 归档已完成的任务
+- `reset`: 检查未完成任务，推送飞书确认
 
 **示例**：
 ```bash
-python scripts/publish_after_confirm.py "AI 定价策略分析" --style professional
-```
+# 初始化任务
+python scripts/task_manager.py init --topic "今日热点"
 
-**流程**：
-1. 获取 access_token
-2. 生成文章内容
-3. 生成配图（待实现）
-4. 上传封面图（900x500）
-5. 上传正文配图
-6. 创建草稿
+# 更新步骤状态
+python scripts/task_manager.py update --task-id xxx --step research
 
-**输出**：
-```json
-{
-  "status": "success",
-  "topic": "AI 定价策略分析",
-  "media_id": "qDGcf6yeX9zHjtEpm0mrI...",
-  "title": "AI 定价策略分析"
-}
+# 归档任务
+python scripts/task_manager.py archive --task-id xxx
+
+# 检查未完成任务（选题前调用）
+python scripts/task_manager.py reset
 ```
 
 ---
 
-### validate-article.py
+### generate-images.py（已优化）
 
-**功能**：验证文章是否符合发布标准
+**功能**：AI 配图生成（优化积分使用）
 
-**参数**：
-- `--article`: 文章路径（必需）
-- `--json`: 输出 JSON 格式
+**关键改进**：
+- webHook 使用假地址（避免 -1 问题）
+- task_id 持久化（避免重复提交）
+- 轮询 5秒间隔，最多 5 分钟
+- 超时放弃不重试（节省积分）
 
 **示例**：
 ```bash
-python scripts/validate-article.py --article tmp/content/2026-04-14/article.md
+python scripts/generate-images.py --topic "AI软件" --count 4 --date 2026-04-14
 ```
-
-**验证项**：
-- ✓ 字数：1500-2000 字
-- ✓ 标题：≤64 字符
-- ✓ 摘要：≤120 字符
-- ✓ 配图：3-5 张
-- ✓ 品牌名：已替换
-- ✓ 去 AI 化评分：≥45
 
 ---
 
-### update-config.py
+### publish-draft.py
 
-**功能**：更新 MCN 配置
+**功能**：公众号草稿发布
 
-**参数**：
-- `--set`: 设置配置（格式：key=value）
+**关键注意**：
+- 封面图用永久素材 API
+- 正文配图用 uploadimg API
+- JSON 中文用 ensure_ascii=False
 
 **示例**：
 ```bash
-# 修改关注领域
-python scripts/update-config.py --set "hotspot.domains=[科技，AI,投资]"
-
-# 修改字数要求
-python scripts/update-config.py --set "article.min_chars=1800"
+python scripts/publish-draft.py --article article.md --images-dir images/
 ```
 
 ---
@@ -191,69 +194,75 @@ python scripts/update-config.py --set "article.min_chars=1800"
 ### 主配置：~/.hermes/mcn_config.yaml
 
 ```yaml
-# 文章要求
+hotspot:
+  channels:
+    # 有分类URL的平台（优先）
+    huxiu_tech:
+      url: https://www.huxiu.com/channel/105.html
+      type: channel_direct
+      domain: 科技
+      
+    # 微博分类过滤
+    weibo:
+      cmd: opencli weibo hot --limit 50
+      type: opencli_filter
+      filter:
+        categories: [互联网, 民生新闻]
+
 article:
   min_chars: 1500
   max_chars: 2000
-  min_images: 3
-  max_images: 5
-
-# 热点领域
-hotspot:
-  domains:
-    - name: 科技
-      keywords: [科技，数码，手机，AI]
-      platforms: [weibo, zhihu, toutiao]
-      top_n: 10
-
-# 配图生成
+  
 image_generation:
-  default_provider: grsai
   providers:
     grsai:
-      api_url: https://api.grsai.com/v1/draw/nano-banana
-      cost_per_image: 440
-```
-
-### 公众号配置：~/.hermes/wechat_mp_config.yaml
-
-```yaml
-appid: wx47533ce9c8854fb5
-secret: 2b990fc5...eb2f
-author: TimeSky
+      api_url: https://grsai.dakka.com.cn/v1/draw/nano-banana
 ```
 
 ---
 
-## 输出目录结构
+## 输出目录结构（已更新）
 
 ```
-~/backup/知识库-Obsidian/tmp/
-├── hotspot/YYYY-MM-DD/      # 热搜原始数据
-├── topic/YYYY-MM-DD/        # 选题分析报告
-├── content/YYYY-MM-DD/      # 生成的文章 + 配图
-│   ├── article.md
-│   └── images/topic-name/
-│       ├── img_1.png
-│       └── img_2.png
-└── publish/YYYY-MM-DD/      # 发布记录
+~/backup/知识库-Obsidian/
+├── mcn/                        # MCN 专用目录（不参与 wiki-ingest）
+│   ├── hotspot/YYYY-MM-DD/     # 热搜聚合数据
+│   ├── topic/YYYY-MM-DD/       # 选题分析报告
+│   ├── content/YYYY-MM-DD/     # 文章 + 配图
+│   ├── images/YYYY-MM-DD/      # AI 生成的配图
+│   └── publish/YYYY-MM-DD/     # 发布记录
+│
+└── tmp/                        # 其他临时文件
+    └── tasks/                  # 任务跟踪
+        ├── archive/            # 已归档任务
+        └── *_task.json         # 进行中的任务
 ```
 
 ---
 
 ## 常见问题
 
-### Q1: 热搜抓取失败
+### Q1: OpenCLI 热搜抓取失败
 
-**原因**：OpenCLI 未启动或配置错误
+**原因**：Node 版本不兼容
 
 **解决**：
 ```bash
-source ~/.nvm/nvm.sh && nvm use 22
-opencli doctor  # 检查连接状态
+# 必须使用 Node 20
+source ~/.nvm/nvm.sh && nvm use 20
+opencli weibo hot --limit 10 --format json
 ```
 
-### Q2: 公众号发布报错 40164
+### Q2: 配图生成积分浪费
+
+**原因**：重复提交相同任务
+
+**解决**：
+- task_id 已持久化到 tasks.json
+- 超时后检查已有 task_id，增量继续
+- 不重新提交所有任务
+
+### Q3: 公众号发布报错 40164
 
 **原因**：IP 白名单未配置
 
@@ -262,23 +271,16 @@ opencli doctor  # 检查连接状态
 2. 设置与开发 → 基本配置
 3. IP 白名单 → 添加当前机器 IP
 
-### Q3: 配图数量不足
-
-**原因**：AI 图片生成失败或 API 额度不足
-
-**解决**：
-1. 检查 GrsAI 积分余额
-2. 手动添加配图到 `images/` 目录
-3. 重新运行验证脚本
-
-### Q4: 文章字数不够
+### Q4: 未完成任务冲突
 
 **解决**：
 ```bash
-# 验证脚本会自动检测
-python scripts/validate-article.py --article article.md
+# 检查未完成任务
+python scripts/task_manager.py reset
 
-# 如果字数不足，手动补充内容或重新生成
+# 如果飞书推送确认，回复：
+# - "重新开始" 继续执行
+# - "放弃" 归档旧任务
 ```
 
 ---
@@ -289,22 +291,18 @@ python scripts/validate-article.py --article article.md
 # 编辑 crontab
 crontab -e
 
-# 添加任务
-0 17 * * * cd ~/.hermes/skills/mcn/my-mcn-manager && python scripts/run-hotspot-research.py
-30 17 * * * cd ~/.hermes/skills/mcn/my-mcn-manager && python scripts/run-topic-analysis.py
+# MCN 调研（使用 my-mcn-manager）
+0 17 * * 1-5 cd ~/.hermes/skills/mcn/my-mcn-manager && source ~/.nvm/nvm.sh && nvm use 20 && python scripts/run-hotspot-research.py
 ```
 
 ---
 
-## 旧技能迁移
+## 版本历史
 
-| 旧技能 | 新脚本 | 状态 |
-|--------|--------|------|
-| mcn-hotspot-aggregator | run-hotspot-research.py | ✅ 已实现 |
-| mcn-topic-selector | run-topic-analysis.py | ✅ 已实现 |
-| wechat-mp-auto-publish | publish_after_confirm.py | ✅ 已实现 |
-| mcn-content-rewriter | 待实现 | ⏳ 待完成 |
-| mcn-wechat-publisher | publish_after_confirm.py | ✅ 已整合 |
+| 版本 | 更新内容 | 日期 |
+|------|----------|------|
+| 2.0 | 整合多渠道、任务清理机制、Node 20 | 2026-04-14 |
+| 1.0 | 初始版本 | 2026-04-13 |
 
 ---
 

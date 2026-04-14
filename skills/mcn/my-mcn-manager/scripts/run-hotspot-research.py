@@ -1,100 +1,347 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-热点调研脚本 - 抓取多平台热搜
+热点调研脚本 - 整合多平台热搜抓取
+
+渠道优先级策略：
+P1（最精准）：虎嗅科技/3C、36kr AI/技术、掘金（直接分类URL）
+P2：微博（category过滤）
+P3：知乎/抖音（关键词匹配）
+
+OpenCLI 环境要求：Node v20
 """
 
 import subprocess
 import json
 import os
 import yaml
+import re
 from datetime import datetime
+
+# 加载环境变量（terminal 不继承 Hermes 环境）
+def load_env():
+    env_path = os.path.expanduser('~/.hermes/.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    if key not in os.environ:
+                        os.environ[key] = value
+
+load_env()
 
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
-TASKS_DIR = f"{KB_ROOT}/tmp/tasks"
+MCN_ROOT = f"{KB_ROOT}/mcn"
 
 def load_config():
-    with open(MCN_CONFIG) as f:
+    with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
-def fetch_hotspot(platform: str, limit: int = 20) -> list:
-    config = load_config()
-    platforms_cfg = config['hotspot']['platforms']
+def run_opencli_cmd(cmd: str, timeout: int = 60) -> str:
+    """执行 OpenCLI 命令（使用 Node 20）"""
+    full_cmd = f"source ~/.nvm/nvm.sh && nvm use 20 && {cmd}"
+    result = subprocess.run(full_cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+    return result.stdout
+
+def fetch_huxiu_tech() -> list:
+    """抓取虎嗅前沿科技频道"""
+    print("  [虎嗅前沿科技] 抓取...")
     
-    if platform not in platforms_cfg:
-        return []
-    
-    platform_cfg = platforms_cfg[platform]
-    if not platform_cfg.get('enabled'):
-        return []
-    
-    if 'command' not in platform_cfg or not platform_cfg['command']:
-        return []
-    
-    cmd = platform_cfg['command'].format(limit=limit)
-    cmd = f"source ~/.nvm/nvm.sh && nvm use 22 && {cmd}"
-    
-    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
-        return []
-    
-    lines = result.stdout.strip().split('\n')
-    for i, line in enumerate(lines):
-        if line.startswith('['):
-            json_str = '\n'.join(lines[i:])
-            break
+    output_dir = "/tmp/huxiu_tech_articles"
+    cmd = f"opencli web read --url https://www.huxiu.com/channel/105.html --output {output_dir}"
     
     try:
-        return json.loads(json_str)
-    except:
+        run_opencli_cmd(cmd, timeout=45)
+        
+        # 解析保存的文章
+        articles = []
+        md_file = f"{output_dir}/前沿科技/前沿科技.md"
+        
+        if os.path.exists(md_file):
+            with open(md_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 提取文章标题和链接
+            pattern = r'\[(.*?)\]\(https://www\.huxiu\.com/article/(\d+)\.html\)'
+            matches = re.findall(pattern, content)
+            
+            for title, aid in matches[:20]:
+                articles.append({
+                    'title': title.strip(),
+                    'platform': '虎嗅',
+                    'category': '前沿科技',
+                    'url': f'https://www.huxiu.com/article/{aid}.html',
+                    'source': 'huxiu_tech'
+                })
+        
+        print(f"    获取 {len(articles)} 条")
+        return articles
+    except Exception as e:
+        print(f"    错误: {e}")
         return []
 
-def save_hotspot(platform: str, data: list, date: str) -> str:
-    time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    output_dir = f"{KB_ROOT}/tmp/hotspot/{date}"
+def fetch_huxiu_3c() -> list:
+    """抓取虎嗅3C数码频道"""
+    print("  [虎嗅3C数码] 抓取...")
+    
+    output_dir = "/tmp/huxiu_3c_articles"
+    cmd = f"opencli web read --url https://www.huxiu.com/channel/121.html --output {output_dir}"
+    
+    try:
+        run_opencli_cmd(cmd, timeout=45)
+        
+        articles = []
+        md_file = f"{output_dir}/3C数码/3C数码.md"
+        
+        if os.path.exists(md_file):
+            with open(md_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            pattern = r'\[(.*?)\]\(https://www\.huxiu\.com/article/(\d+)\.html\)'
+            matches = re.findall(pattern, content)
+            
+            for title, aid in matches[:15]:
+                articles.append({
+                    'title': title.strip(),
+                    'platform': '虎嗅',
+                    'category': '3C数码',
+                    'url': f'https://www.huxiu.com/article/{aid}.html',
+                    'source': 'huxiu_3c'
+                })
+        
+        print(f"    获取 {len(articles)} 条")
+        return articles
+    except Exception as e:
+        print(f"    错误: {e}")
+        return []
+
+def fetch_36kr_news() -> list:
+    """抓取36氪新闻"""
+    print("  [36氪] 抓取...")
+    
+    cmd = "opencli 36kr news --limit 20 --format json"
+    
+    try:
+        output = run_opencli_cmd(cmd, timeout=45)
+        
+        # 解析 JSON
+        lines = output.strip().split('\n')
+        json_str = ""
+        for i, line in enumerate(lines):
+            if line.startswith('['):
+                json_str = '\n'.join(lines[i:])
+                break
+        
+        if json_str:
+            data = json.loads(json_str)
+            
+            articles = []
+            for item in data[:20]:
+                articles.append({
+                    'title': item.get('title', ''),
+                    'platform': '36氪',
+                    'category': '科技',
+                    'url': item.get('url', ''),
+                    'summary': item.get('summary', '')[:100],
+                    'source': '36kr'
+                })
+            
+            print(f"    获取 {len(articles)} 条")
+            return articles
+    except Exception as e:
+        print(f"    错误: {e}")
+        return []
+    
+    return []
+
+def fetch_juejin() -> list:
+    """抓取掘金首页"""
+    print("  [掘金] 抓取...")
+    
+    output_dir = "/tmp/juejin_articles"
+    cmd = f"opencli web read --url https://juejin.cn/ --output {output_dir}"
+    
+    try:
+        run_opencli_cmd(cmd, timeout=45)
+        
+        articles = []
+        # 掘金的输出目录可能不同，需要检查
+        for root, dirs, files in os.walk(output_dir):
+            for f in files:
+                if f.endswith('.md'):
+                    with open(os.path.join(root, f), 'r', encoding='utf-8') as file:
+                        content = file.read()
+                    
+                    # 提取文章标题
+                    titles = re.findall(r'###?\s*(.*?)\n', content)
+                    for title in titles[:20]:
+                        if title and len(title) > 5:
+                            articles.append({
+                                'title': title.strip(),
+                                'platform': '掘金',
+                                'category': '开发',
+                                'url': 'https://juejin.cn/',
+                                'source': 'juejin'
+                            })
+        
+        print(f"    获取 {len(articles)} 条")
+        return articles[:20]
+    except Exception as e:
+        print(f"    错误: {e}")
+        return []
+
+def fetch_weibo_filtered() -> list:
+    """抓取微博热搜（过滤互联网/民生新闻分类）"""
+    print("  [微博] 抓取（过滤分类）...")
+    
+    cmd = "opencli weibo hot --limit 50 --format json"
+    
+    try:
+        output = run_opencli_cmd(cmd, timeout=45)
+        
+        lines = output.strip().split('\n')
+        json_str = ""
+        for i, line in enumerate(lines):
+            if line.startswith('['):
+                json_str = '\n'.join(lines[i:])
+                break
+        
+        if json_str:
+            data = json.loads(json_str)
+            
+            # 过滤分类
+            filtered = [d for d in data if d.get('category') in ['互联网', '民生新闻']]
+            
+            articles = []
+            for item in filtered:
+                articles.append({
+                    'title': item.get('word', ''),
+                    'platform': '微博',
+                    'category': item.get('category', ''),
+                    'url': item.get('url', ''),
+                    'hot_value': item.get('hot_value', 0),
+                    'source': 'weibo'
+                })
+            
+            print(f"    获取 {len(articles)} 条（过滤后）")
+            return articles
+    except Exception as e:
+        print(f"    错误: {e}")
+        return []
+    
+    return []
+
+def keyword_match(title: str, keywords: list) -> bool:
+    """关键词匹配"""
+    for kw in keywords:
+        if kw.lower() in title.lower():
+            return True
+    return False
+
+def filter_by_keywords(articles: list, keywords: list) -> list:
+    """关键词过滤"""
+    return [a for a in articles if keyword_match(a.get('title', ''), keywords)]
+
+def save_hotspot(date: str, all_articles: list) -> str:
+    """保存热点数据"""
+    output_dir = f"{MCN_ROOT}/hotspot/{date}"
     os.makedirs(output_dir, exist_ok=True)
+    
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     
     md = f"""---
 created: {time_str}
-platform: {platform}
+total: {len(all_articles)}
 ---
 
-# {date} {platform} 热搜榜
+# {date} 热点聚合
 
-| 排名 | 标题 | 热度 | 链接 |
-|------|------|------|------|
+## 来源统计
+
+| 来源 | 数量 |
+|------|------|
 """
+
+    # 统计各来源
+    sources = {}
+    for a in all_articles:
+        src = a.get('source', 'unknown')
+        sources[src] = sources.get(src, 0) + 1
     
-    for item in data:
-        rank = item.get('rank', '?')
-        title = item.get('title', item.get('word', '?'))
-        heat = item.get('heat', item.get('hot_value', '?'))
-        url = item.get('url', '')
-        md += f"| {rank} | {title} | {heat} | [查看]({url}) |\n"
+    for src, count in sorted(sources.items(), key=lambda x: -x[1]):
+        md += f"| {src} | {count} |\n"
     
-    filename = f"{output_dir}/{platform}-hotspot.md"
+    md += "\n---\n\n## 热点列表\n\n"
+    
+    # 按来源分组展示
+    for source in ['huxiu_tech', 'huxiu_3c', '36kr', 'juejin', 'weibo']:
+        source_articles = [a for a in all_articles if a.get('source') == source]
+        if source_articles:
+            platform = source_articles[0].get('platform', source)
+            md += f"### {platform}\n\n"
+            
+            for i, a in enumerate(source_articles[:15], 1):
+                title = a.get('title', '')
+                url = a.get('url', '')
+                category = a.get('category', '')
+                hot_value = a.get('hot_value', '')
+                
+                md += f"{i}. [{title}]({url})"
+                if category:
+                    md += f" [{category}]"
+                if hot_value:
+                    md += f" (热度:{hot_value})"
+                md += "\n"
+            
+            md += "\n"
+    
+    filename = f"{output_dir}/hotspot-aggregated.md"
     with open(filename, 'w', encoding='utf-8') as f:
         f.write(md)
     
     return filename
 
-# 执行调研
-date = datetime.now().strftime("%Y-%m-%d")
-print(f"=== 热点调研 - {date} ===\n")
+def main():
+    date = datetime.now().strftime("%Y-%m-%d")
+    
+    print("=" * 60)
+    print(f"热点调研 - {date}")
+    print("=" * 60)
+    print()
+    
+    # P1: 有分类URL的平台
+    print("=== P1 渠道（分类URL）===")
+    huxiu_tech = fetch_huxiu_tech()
+    huxiu_3c = fetch_huxiu_3c()
+    juejin = fetch_juejin()
+    
+    print()
+    print("=== P2 渠道（分类过滤）===")
+    weibo = fetch_weibo_filtered()
+    
+    print()
+    print("=== P3 渠道（36kr补充）===")
+    36kr = fetch_36kr_news()
+    
+    # 合并所有热点
+    all_articles = huxiu_tech + huxiu_3c + juejin + weibo + 36kr
+    
+    print()
+    print("=" * 60)
+    print(f"总计: {len(all_articles)} 条热点")
+    print("=" * 60)
+    
+    # 保存
+    if all_articles:
+        filename = save_hotspot(date, all_articles)
+        print(f"\n✅ 已保存: {filename}")
+    
+    # 返回数据供后续使用
+    return all_articles
 
-config = load_config()
-platforms_cfg = config['hotspot']['platforms']
-platforms = [p for p, cfg in platforms_cfg.items() if cfg.get('enabled') and cfg.get('command')]
-
-print(f"抓取平台：{', '.join(platforms)}\n")
-
-results = []
-for platform in platforms:
-    data = fetch_hotspot(platform)
-    if data:
-        filename = save_hotspot(platform, data, date)
-        results.append({'platform': platform, 'count': len(data)})
-        print(f"✓ {platform}: {len(data)}条")
-
-print(f"\n总计：{sum(r['count'] for r in results)}条")
-print(f"输出目录：{KB_ROOT}/tmp/hotspot/{date}/")
+if __name__ == '__main__':
+    articles = main()
+    print(f"\n热点数量: {len(articles)}")
