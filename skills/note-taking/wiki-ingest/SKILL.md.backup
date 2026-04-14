@@ -1,9 +1,9 @@
 ---
 name: wiki-ingest
 description: 增量式 ingest 流程，将 raw 源文件转换为 wiki 结构化内容。支持单个文件 ingest 和批量 ingest 两种模式。当用户说"ingest"、"建立 wiki"、"处理 raw 目录"、"批量 ingest"、"raw 目录所有内容都要建立 wiki"时使用。优先优化此技能，不要创建重复技能。
-version: 2.2
+version: 2.1
 created: 2026-04-12
-updated: 2026-04-13
+updated: 2026-04-12
 author: Luna
 inspired_by: Karpathy LLM Wiki
 ---
@@ -24,45 +24,63 @@ inspired_by: Karpathy LLM Wiki
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         Wiki 知识库流程                                   │
+│                         Wiki Ingest 流程                                 │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  【阶段 1】wiki-auto-save（自动）                                        │
-│  ├─ 触发：web_search / web_extract 执行后                              │
-│  ├─ 输出：tmp/YYYY-MM-DD/文章名.md                                      │
-│  └─ 内容：搜索结果 + 提取内容 + 指标                                    │
+│  Step 1: 检查 processed.log                                              │
+│  ├─ 读取 wiki/processed.log                                             │
+│  ├─ 检查源文件是否已处理过                                              │
+│  └─ 已处理 → 跳过；未处理 → 继续                                        │
 │                                                                         │
-│  【阶段 2】wiki-curator（定时整理）                                      │
-│  ├─ 触发：8-22点每2小时                                                 │
-│  ├─ 输入：tmp/YYYY-MM-DD/*.md                                          │
-│  ├─ 评估：总分 >= 5 保留，< 3 删除                                      │
-│  ├─ 输出：raw/sources/保留文件.md                                       │
-│  └─ 删除记录：wiki/delete.log                                           │
+│  Step 2: 读取源文件                                                      │
+│  ├─ 从 raw/sources/ 或 raw/notes/ 读取                                  │
+│  ├─ 解析 frontmatter（created, source, tags）                           │
+│  └─ 提取正文内容                                                        │
 │                                                                         │
-│  【阶段 3】wiki-ingest（增量处理）                                       │
-│  ├─ 触发：raw 有新文件时                                                │
-│  ├─ 输入：raw/sources/*.md                                              │
-│  ├─ 处理：提取实体/概念 → 创建/更新 wiki 页面                          │
-│  ├─ 输出：wiki/entities/ 或 wiki/concepts/                             │
-│  └─ 记录：wiki/processed.log + wiki/log.md                             │
+│  Step 3: 提取关键信息                                                    │
+│  ├─ 识别实体：人物、项目、工具、组织                                    │
+│  ├─ 识别概念：技术、方法论、理论                                        │
+│  └─ 识别关系：A 与 B 的关系、A 是 B 的一种                                │
 │                                                                         │
-│  【MCN 目录】人工定期整理                                                │
-│  ├─ 位置：mcn/                                                          │
-│  ├─ 内容：热点调研、选题、文章、配图、发布记录                          │
-│  └─ 管理：不参与 wiki-ingest 流程，人工整理                             │
+│  Step 4: 创建/更新 Wiki 页面                                             │
+│  ├─ 新实体 → wiki/entities/实体名.md                                    │
+│  ├─ 新概念 → wiki/concepts/概念名.md                                    │
+│  ├─ 已有页面 → 增量更新（追加来源，添加 cross-reference）               │
+│  └─ 相关文件 → 合并到一个页面                                           │
+│                                                                         │
+│  Step 5: 增量更新 index.md                                               │
+│  ├─ 使用 patch 添加新行到表格                                           │
+│  ├─ 更新 Statistics 数字                                                │
+│  └─ 不要重写整个文件！                                                  │
+│                                                                         │
+│  Step 6: 追加 log.md                                                     │
+│  ├─ 格式：## [YYYY-MM-DD HH:MM] ingest | 标题                           │
+│  └─ 记录处理内容、关键洞察                                              │
+│                                                                         │
+│  Step 7: 追加 processed.log                                              │
+│  ├─ 格式：source_path | ingest_date | wiki_pages | status               │
+│  └─ 标记源文件已处理，避免重复                                          │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 流程步骤
+---
 
-| 阶段 | 操作 | 说明 |
-|------|------|------|
-| 自动保存 | web_search/web_extract 后 | 存入 tmp，包含指标 |
-| 定时整理 | 8-22点每2小时 | 评估总分，决定保留/删除 |
-| 移入 raw | 总分 >= 5 | shutil.move 到 raw/sources/ |
-| Ingest | 移入后触发 | 创建 wiki 页面，更新索引 |
-| 删除记录 | 总分 < 3 或过期 | 追加到 wiki/delete.log |
+## 增量更新规则
+
+### 实体页面
+
+**新实体**:
+```markdown
+---
+created: YYYY-MM-DD
+sources: [源文件路径]
+tags: [标签]
+---
+
+# 实体名
+
+## 概述
 [一句话定义]
 
 ## 关键信息
@@ -241,63 +259,6 @@ def update_index_md(new_pages: List[dict]):
 7. 追加 processed.log 和 log.md
 
 **实战结果**：109 个有效文件 → 36 个 wiki 页面
-
----
-
-## 硬指标验证（测试必需）
-
-**定义**: 所有 raw 文件必须有对应的真实 wiki 页面
-
-### 验证脚本
-
-```python
-from pathlib import Path
-import re
-
-KB_ROOT = Path("/Users/timesky/backup/知识库-Obsidian")
-RAW_DIR = KB_ROOT / "raw" / "sources"
-PROC_LOG = KB_ROOT / "wiki" / "processed.log"
-
-# 1. 统计 raw 文件
-raw_files = list(RAW_DIR.glob("*.md"))
-
-# 2. 读取 processed.log 提取已处理文件
-processed_files = set()
-if PROC_LOG.exists():
-    content = PROC_LOG.read_text()
-    for line in content.split('\n'):
-        if '|' in line and '.md' in line:
-            match = re.search(r'raw/sources/([^|]+\.md)', line)
-            if match:
-                processed_files.add(match.group(1))
-
-# 3. 对比 - 找未处理文件
-unprocessed = [f.name for f in raw_files if f.name not in processed_files]
-
-# 4. 验证 wiki 页面有实质内容
-empty_pages = []
-for page in wiki_pages:
-    content = page.read_text()
-    body_lines = [l for l in content.split('\n') 
-                  if l.strip() and not l.startswith('---') 
-                  and not l.startswith('#') and not l.startswith('|')]
-    if len(body_lines) < 3:
-        empty_pages.append(page.name)
-
-# 5. 结论
-if len(unprocessed) == 0 and len(empty_pages) == 0:
-    print("✅ 硬指标达标")
-else:
-    print(f"❌ 未处理: {len(unprocessed)}, 空 wiki: {len(empty_pages)}")
-```
-
-### 达标标准
-
-| 指标 | 要求 |
-|------|------|
-| 未处理文件 | 0 |
-| 空 wiki 页面 | 0 |
-| Wiki 页面内容 | ≥3 行实质内容 |
 
 ---
 

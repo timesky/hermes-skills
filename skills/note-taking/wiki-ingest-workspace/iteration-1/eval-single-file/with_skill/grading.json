@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "eval_name": "single-file-ingest",
+  "run_type": "with_skill",
+  "expectations": [
+    {
+      "text": "creates_wiki_page: 应该创建 wiki 页面文件",
+      "passed": true,
+      "evidence": "创建了 ai-skills-toolkit-2026.md (3182 bytes)，正确的 wiki 页面格式"
+    },
+    {
+      "text": "updates_processed_log: 应该在 processed.log 中添加记录",
+      "passed": true,
+      "evidence": "创建了 processed.log.append，包含正确的追加记录"
+    },
+    {
+      "text": "extracts_entities: 应该识别文章中的实体",
+      "passed": true,
+      "evidence": "正确识别了 4 个工具实体：videocut-skills, Humanizer-zh, Auto-Redbook-Skills, add-skill"
+    },
+    {
+      "text": "incremental_update: 应该遵循增量更新规则",
+      "passed": true,
+      "evidence": "sources frontmatter 包含多个来源，表示正确合并到已有页面"
+    }
+  ]
+}

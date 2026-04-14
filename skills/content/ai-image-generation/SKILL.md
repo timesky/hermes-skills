@@ -2,8 +2,8 @@
 name: ai-image-generation
 description: AI图片生成技能 - 支持多平台API（GrsAI/Nano Banana/DALL-E等），统一接口调用，用于MCN配图生成
 tags: [ai, image, generation, grsai, dall-e, nano-banana, mcn]
-version: 2.0.0
-updated: 2026-04-13
+version: 2.1.0
+updated: 2026-04-14
 ---
 
 # AI 图片生成技能
@@ -25,7 +25,7 @@ image_generation:
   providers:
     grsai:
       name: GrsAI
-      api_url: https://api.grsai.com/v1/draw/nano-banana
+      api_url: https://grsai.dakka.com.cn/v1/draw/nano-banana  # 国内直连
       api_key: sk-xxx  # 你的API Key
       models:
         fast: nano-banana-fast    # 440积分/张
@@ -79,19 +79,109 @@ image_generation:
 
 ### 生成耗时
 
-30-50秒，建议 timeout 设置为 90秒
+30-50秒，建议 timeout 设置为 **120秒**（用户要求）
 
-### 响应格式
+### API 调用方式（重要！）
 
-流式响应，多行 `data:` 格式：
+**推荐方式：webHook="-1" + 轮询 result**
 
+```python
+# 1. 提交任务（webHook="-1" 立即返回 task_id）
+POST /v1/draw/nano-banana
+Body: {"model": "nano-banana-fast", "prompt": "...", "webHook": "-1"}
+返回: {"code": 0, "data": {"id": "task_id"}}
+
+# 2. 轮询结果（最多60次，每次间隔2秒）
+POST /v1/draw/result
+Body: {"id": "task_id"}
+返回: {"code": 0, "data": {"status": "succeeded", "results": [{"url": "..."}]}}
 ```
-data: {"id":"xxx","progress":1,"status":"running",...}
-data: {"id":"xxx","progress":50,"status":"running",...}
-data: {"id":"xxx","progress":100,"status":"succeeded","results":[{"url":"https://..."}]}
+
+**⚠️ 注意**：
+- **不要用流式等待**：直接等待流式响应会超时（execute_code 中 urllib SSL 经常超时）
+- **使用 terminal + curl**：比 Python urllib 更稳定
+- **API 地址**：国内直连 `https://grsai.dakka.com.cn`
+
+**推荐方式：subprocess + curl（更稳定）**
+
+execute_code 中 urllib.request 经常 SSL 超时，推荐用 subprocess + curl：
+
+```python
+import subprocess
+import json
+import time
+import os
+
+def submit_and_poll_curl(prompt: str, api_key: str, max_polls: int = 60, interval: int = 2) -> str:
+    """用 curl 提交任务并轮询结果（推荐方式）"""
+    
+    api_base = "https://grsai.dakka.com.cn"
+    
+    # 1. 提交任务（用 curl）
+    submit_cmd = [
+        'curl', '-s', '-X', 'POST', api_base + "/v1/draw/nano-banana",
+        '-H', f'Authorization: Bearer {api_key}',
+        '-H', 'Content-Type: application/json',
+        '-d', json.dumps({"model": "nano-banana-fast", "prompt": prompt, "webHook": "-1"}),
+        '--max-time', '30'
+    ]
+    
+    result = subprocess.run(submit_cmd, capture_output=True, text=True)
+    data = json.loads(result.stdout)
+    
+    if data.get('code') != 0:
+        print(f"提交失败: {data}")
+        return None
+    
+    task_id = data['data']['id']
+    print(f"Task ID: {task_id}")
+    
+    # 2. 轮询结果（用 curl）
+    for i in range(max_polls):
+        poll_cmd = [
+            'curl', '-s', '-X', 'POST', api_base + "/v1/draw/result",
+            '-H', f'Authorization: Bearer {api_key}',
+            '-H', 'Content-Type: application/json',
+            '-d', json.dumps({"id": task_id}),
+            '--max-time', '30'
+        ]
+        
+        result = subprocess.run(poll_cmd, capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        
+        status = data.get('data', {}).get('status', 'unknown')
+        progress = data.get('data', {}).get('progress', 0)
+        
+        if i % 5 == 0:
+            print(f"进度: {progress}% ({i+1}/{max_polls})")
+        
+        if status == 'succeeded':
+            url = data['data']['results'][0]['url']
+            print(f"✅ 生成成功")
+            return url
+        elif status == 'failed':
+            print(f"❌ 生成失败")
+            return None
+        
+        time.sleep(interval)
+    
+    print(f"⚠️ 轮询超时")
+    return None
+
+def download_image_curl(url: str, save_path: str) -> bool:
+    """用 curl 下载图片"""
+    cmd = ['curl', '-s', '-o', save_path, url, '--max-time', '60']
+    subprocess.run(cmd)
+    
+    if os.path.exists(save_path) and os.path.getsize(save_path) > 1000:
+        print(f"✅ 已保存: {save_path} ({os.path.getsize(save_path)/1024:.1f} KB)")
+        return True
+    return False
 ```
 
-**解析方法**：提取最后一行 `status="succeeded"` 的 `results[0].url`
+**⚠️ urllib.request 方式（不推荐）**
+
+execute_code 环境中 SSL handshake 经常超时，仅供参考：
 
 ---
 
@@ -351,13 +441,109 @@ images = generate_article_images(
 
 ---
 
+## ⭐ 失败重试机制
+
+**问题**：图片生成可能因网络、超时等原因失败，导致配图数量不足
+
+**解决方案**：
+```python
+def generate_images_with_retry(
+    topic: str,
+    keywords: list,
+    count: int = 4,
+    max_retries: int = 2,
+    save_dir: str = "/tmp/article_images"
+) -> list:
+    """带重试机制的批量图片生成"""
+    
+    import os
+    os.makedirs(save_dir, exist_ok=True)
+    
+    images = []
+    failed_indices = []
+    
+    # 首次生成
+    print(f"=== 首次生成 {count} 张图片 ===")
+    for i, keyword in enumerate(keywords[:count]):
+        prompt = f"{topic} {keyword}, high quality, professional"
+        url = generate_image(prompt, timeout=120)
+        
+        if url:
+            save_path = f"{save_dir}/img_{i+1}.png"
+            if download_image(url, save_path):
+                images.append({'path': save_path, 'keyword': keyword, 'index': i})
+                print(f"✓ 图片{i+1}: {keyword}")
+            else:
+                failed_indices.append(i)
+                print(f"✗ 图片{i+1}下载失败")
+        else:
+            failed_indices.append(i)
+            print(f"✗ 图片{i+1}生成失败")
+    
+    # 重试失败的
+    for retry in range(max_retries):
+        if not failed_indices:
+            break
+        
+        print(f"\n=== 重试第{retry+1}次，剩余{len(failed_indices)}张 ===")
+        still_failed = []
+        
+        for idx in failed_indices:
+            keyword = keywords[idx]
+            # 使用不同的prompt尝试
+            prompt = f"{topic} {keyword} variant {retry+1}, creative design"
+            url = generate_image(prompt, timeout=120)
+            
+            if url:
+                save_path = f"{save_dir}/img_{idx+1}.png"
+                if download_image(url, save_path):
+                    images.append({'path': save_path, 'keyword': keyword, 'index': idx})
+                    print(f"✓ 重试成功: 图片{idx+1}")
+                else:
+                    still_failed.append(idx)
+            else:
+                still_failed.append(idx)
+        
+        failed_indices = still_failed
+    
+    # 最终结果
+    print(f"\n=== 生成完成 ===")
+    print(f"成功: {len(images)}张")
+    if failed_indices:
+        print(f"⚠️ 失败: {len(failed_indices)}张（索引: {failed_indices}）")
+        print(f"建议手动补充或使用备选关键词")
+    
+    return images
+```
+
+**使用示例**：
+```python
+images = generate_images_with_retry(
+    topic="华为折叠屏",
+    keywords=["科技手机", "现代设计", "商务场景", "产品展示"],
+    count=4,
+    max_retries=2,
+    save_dir="/tmp/article_images/huawei"
+)
+
+# 验证数量
+if len(images) < 3:
+    print("⚠️ 配图不足，需要补充")
+```
+
+---
+
 ## Pitfalls
 
 1. **⚠️ GrsAI积分消耗**：实际是440积分/张，不是22积分！
-2. **流式响应解析**：必须提取最后一行 `data:` 的JSON
-3. **生成耗时**：30-50秒，timeout需设90秒
-4. **下载稳定性**：使用requests而非urllib
-5. **图片URL有效期**：可能有限期，建议及时下载保存
+2. **API调用方式**：使用 `webHook="-1"` + 轮询 result，不要直接等待流式响应
+3. **⚠️ SSL超时问题**：execute_code 中 urllib.request 经常 SSL handshake 超时，推荐用 terminal + curl
+4. **API地址**：国内直连 `https://grsai.dakka.com.cn`，海外 `https://grsaiapi.com`
+5. **生成耗时**：30-50秒，轮询最多60次（每次间隔2秒）
+6. **下载稳定性**：使用requests而非urllib
+7. **图片URL有效期**：可能有限期，建议及时下载保存
+8. **⚠️ 配图数量验证**：生成后必须验证数量≥3张，不足则重试或补充
+9. **命名规范**：使用 img_1, img_2, img_3... 连续命名，跳过索引说明失败
 
 ---
 
@@ -369,4 +555,4 @@ images = generate_article_images(
 
 ---
 
-*Updated: 2026-04-13 by Luna*
+*Updated: 2026-04-14 by Luna*

@@ -1,0 +1,51 @@
+{
+  "ingest_metadata": {
+    "timestamp": "2026-04-13T16:56:00",
+    "mode": "baseline_without_skill",
+    "source_file": "/Users/timesky/backup/知识库-Obsidian/raw/sources/2026-01-23-4款GitHub开源AI技能视频剪辑文本去AI化小红书发布与技能管理工具.md",
+    "output_directory": "/Users/timesky/.hermes/skills/note-taking/wiki-ingest-workspace/iteration-1/eval-single-file/without_skill/"
+  },
+  "source_info": {
+    "created": "2026-01-23",
+    "source": "鲸林向海",
+    "author": "鲸栖",
+    "url": "https://www.itsolotime.com/archives/19109",
+    "tags": ["AI技能", "GitHub开源", "文本处理", "自动化工具", "视频剪辑"],
+    "file_size": 2353,
+    "line_count": 65
+  },
+  "extracted_entities": {
+    "tools": [
+      {
+        "name": "视频剪辑 Skill",
+        "repo": "videocut-skills",
+        "github_url": "https://github.com/Ceeon/videocut-skills"
+      },
+      {
+        "name": "文本去AI化 Skill"
+      },
+      {
+        "name": "小红书发布 Skill"
+      },
+      {
+        "name": "技能管理工具"
+      }
+    ],
+    "technologies": ["Whisper", "FFmpeg", "Claude Code"],
+    "keywords": ["AI Skills", "自动化工作流", "视频剪辑自动化", "文本处理", "社交媒体发布", "开源工具"]
+  },
+  "output_files": [
+    {
+      "filename": "ingested-4款GitHub开源AI技能.md",
+      "type": "markdown_report",
+      "size_bytes": 3517,
+      "description": "完整的文档摄取报告，包含摘要、结构化内容和关键信息提取"
+    }
+  ],
+  "processing_stats": {
+    "entities_extracted": 4,
+    "github_repos_found": 1,
+    "technologies_identified": 3,
+    "sections_created": 5
+  }
+}

@@ -92,11 +92,26 @@ status: pending
 ## 目录结构
 
 ```
-tmp/
-└── YYYY-MM-DD/           # 按日期分目录
-    ├── 文章标题-slug.md
-    └── 另一文章-slug.md
+知识库-Obsidian/
+├── raw/              # 原始数据，只读不可修改
+├── wiki/             # LLM 维护的结构化内容
+├── tmp/              # auto-save 目标，会话下载文章记录
+│   └── YYYY-MM-DD/   # 按日期分目录
+│       ├── 文章标题-slug.md
+│       └── 另一文章-slug.md
+└── mcn/              # MCN 基础目录，人工定期整理
+    ├── hotspot/
+    ├── topic/
+    ├── content/
+    ├── images/
+    └── publish/
 ```
+
+**目录用途说明**：
+- `tmp/` - wiki-auto-save 输出目标，等待定时整理评估
+- `raw/` - wiki-ingest 输入源，评估后的内容移入此处
+- `wiki/` - wiki-ingest 输出目标，结构化 wiki 页面
+- `mcn/` - MCN 工作流专用目录，人工定期整理
 
 **不使用 web/user 子目录**，所有内容统一按日期存放。
 
@@ -137,6 +152,9 @@ tmp/
 3. **按日期分目录**：不要使用 web/user 子目录
 4. **session_id 必须记录**：用于后续引用追踪
 5. **指标无法获取时标记"未知"**：不要跳过指标字段
+6. **实际路径带日期子目录**：知乎文章保存在 `tmp/zhihu/YYYY-MM-DD/`，不是 `tmp/zhihu/`
+7. **脚本输出可能为空**：定时整理脚本可能返回空报告，需要手动 `search_files` 验证实际文件
+8. **patch 多行内容用直接调用**：不要在 execute_code 中用 patch 处理多行字符串，直接调用 patch 工具更可靠
 
 ---
 

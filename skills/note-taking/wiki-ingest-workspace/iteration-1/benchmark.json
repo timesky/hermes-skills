@@ -1,0 +1,39 @@
+{
+  "skill_name": "wiki-ingest",
+  "iteration": 1,
+  "evals": [
+    {
+      "eval_name": "single-file-ingest",
+      "with_skill": {
+        "pass_rate": 1.0,
+        "passed": 4,
+        "total": 4,
+        "duration_seconds": 175.36,
+        "tokens": {
+          "input": 202523,
+          "output": 5013
+        }
+      },
+      "without_skill": {
+        "pass_rate": 0.25,
+        "passed": 1,
+        "total": 4,
+        "duration_seconds": 78.11,
+        "tokens": {
+          "input": 24475,
+          "output": 2319
+        }
+      },
+      "delta": {
+        "pass_rate_delta": 0.75,
+        "time_delta_seconds": 97.25,
+        "tokens_delta": 178048
+      }
+    }
+  ],
+  "summary": {
+    "with_skill_avg_pass_rate": 1.0,
+    "without_skill_avg_pass_rate": 0.25,
+    "improvement": "+75% pass rate"
+  }
+}

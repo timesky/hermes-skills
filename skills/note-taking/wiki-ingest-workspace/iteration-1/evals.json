@@ -1,0 +1,65 @@
+{
+  "skill_name": "wiki-ingest",
+  "evals": [
+    {
+      "id": 1,
+      "eval_name": "single-file-ingest",
+      "prompt": "ingest 这个文件：/Users/timesky/backup/知识库-Obsidian/raw/sources/2026-01-23-4款GitHub开源AI技能视频剪辑文本去AI化小红书发布与技能管理工具.md",
+      "expected_output": "创建新的 wiki 页面，更新 processed.log",
+      "assertions": [
+        {
+          "name": "creates_wiki_page",
+          "description": "应该创建 wiki 页面文件"
+        },
+        {
+          "name": "updates_processed_log",
+          "description": "应该在 processed.log 中添加记录"
+        },
+        {
+          "name": "extracts_entities",
+          "description": "应该识别文章中的实体（如 videocut-skills、文本去AI化工具等）"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "batch-ingest-trigger",
+      "prompt": "处理 raw 目录所有内容，建立 wiki",
+      "expected_output": "批量处理所有未处理的 raw 文件",
+      "assertions": [
+        {
+          "name": "scans_raw_directory",
+          "description": "应该扫描 raw/sources 目录"
+        },
+        {
+          "name": "filters_processed",
+          "description": "应该过滤已处理的文件"
+        },
+        {
+          "name": "creates_multiple_pages",
+          "description": "应该为多个文件创建 wiki 页面"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "eval_name": "incremental-update",
+      "prompt": "ingest raw/sources 目录",
+      "expected_output": "只处理未处理的文件，跳过已处理的",
+      "assertions": [
+        {
+          "name": "checks_processed_log",
+          "description": "应该先检查 processed.log"
+        },
+        {
+          "name": "skips_processed_files",
+          "description": "应该跳过已处理的文件"
+        },
+        {
+          "name": "only_processes_new",
+          "description": "只处理新的未处理文件"
+        }
+      ]
+    }
+  ]
+}

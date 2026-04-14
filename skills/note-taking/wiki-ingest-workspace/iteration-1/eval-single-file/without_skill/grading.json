@@ -1,0 +1,27 @@
+{
+  "eval_id": 1,
+  "eval_name": "single-file-ingest",
+  "run_type": "without_skill",
+  "expectations": [
+    {
+      "text": "creates_wiki_page: 应该创建 wiki 页面文件",
+      "passed": false,
+      "evidence": "创建了独立的报告文件 ingested-xxx.md，不是 wiki 页面格式"
+    },
+    {
+      "text": "updates_processed_log: 应该在 processed.log 中添加记录",
+      "passed": false,
+      "evidence": "没有生成 processed.log 记录"
+    },
+    {
+      "text": "extracts_entities: 应该识别文章中的实体",
+      "passed": true,
+      "evidence": "JSON 索引中提取了 4 个工具"
+    },
+    {
+      "text": "incremental_update: 应该遵循增量更新规则",
+      "passed": false,
+      "evidence": "没有检查已有 wiki 页面，创建了新文件"
+    }
+  ]
+}

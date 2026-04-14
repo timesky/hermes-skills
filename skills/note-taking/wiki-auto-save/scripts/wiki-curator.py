@@ -123,13 +123,90 @@ def scan_tmp_files():
     if not TMP_DIR.exists():
         return files
     
-    for date_dir in TMP_DIR.iterdir():
-        if not date_dir.is_dir():
+    # 遍历 tmp 下的所有目录（可能是 platform/YYYY-MM-DD 或直接 YYYY-MM-DD）
+    for item in TMP_DIR.iterdir():
+        if not item.is_dir():
             continue
-        if date_dir.name.startswith('_'):  # 跳过 _to_delete 等特殊目录
+        if item.name.startswith('_'):  # 跳过 _to_delete 等特殊目录
             continue
         
-        for md_file in date_dir.glob("*.md"):
+        # 情况1: tmp/YYYY-MM-DD/ (直接日期目录)
+        if re.match(r'\d{4}-\d{2}-\d{2}', item.name):
+            for md_file in item.glob("*.md"):
+                process_md_file(md_file, files, item.name)
+            # 也检查子目录（如 hotspot/）
+            for subdir in item.iterdir():
+                if subdir.is_dir():
+                    for md_file in subdir.glob("*.md"):
+                        process_md_file(md_file, files, item.name)
+        
+        # 情况2: tmp/platform/YYYY-MM-DD/ (平台子目录，如 zhihu/、hotspot/)
+        else:
+            for date_subdir in item.iterdir():
+                if date_subdir.is_dir() and re.match(r'\d{4}-\d{2}-\d{2}', date_subdir.name):
+                    for md_file in date_subdir.glob("*.md"):
+                        process_md_file(md_file, files, date_subdir.name)
+    
+    return files
+
+
+def process_md_file(md_file, files, date_dir_name):
+    """处理单个 md 文件，提取信息并添加到 files 列表"""
+    try:
+        content = md_file.read_text(encoding='utf-8')
+        
+        if content.startswith('---'):
+            parts = content.split('---', 2)
+            if len(parts) >= 3:
+                fm = parts[1]
+                body = parts[2]
+                
+                metadata = {}
+                for line in fm.strip().split('\n'):
+                    if ':' in line:
+                        key, val = line.split(':', 1)
+                        metadata[key.strip()] = val.strip()
+                
+                indicators = parse_indicators(body)
+                indicator_score = calculate_indicator_score(indicators)
+                
+                created = metadata.get('created', '')
+                age_hours = 0
+                if created:
+                    try:
+                        created_dt = datetime.strptime(created.split()[0], "%Y-%m-%d")
+                        age_hours = (datetime.now() - created_dt).total_seconds() / 3600
+                    except:
+                        pass
+                
+                title_match = re.search(r'^#\s+(.+)$', body)
+                title = title_match.group(1) if title_match else md_file.stem
+                
+                files.append({
+                    'path': str(md_file),
+                    'relative_path': str(md_file.relative_to(KB_ROOT)),
+                    'filename': md_file.name,
+                    'date_dir': date_dir_name,
+                    'status': metadata.get('status', 'pending'),
+                    'created': created,
+                    'age_hours': round(age_hours, 1),
+                    'age_days': round(age_hours / 24, 1),
+                    'source': metadata.get('source', 'unknown'),
+                    'session_id': metadata.get('session_id', ''),
+                    'tags': metadata.get('tags', ''),
+                    'title': title,
+                    'indicators': indicators,
+                    'indicator_score': round(indicator_score, 2),
+                    'content_preview': body.strip()[:500] if body else '',
+                    'content': body
+                })
+    except Exception as e:
+        files.append({
+            'path': str(md_file),
+            'relative_path': str(md_file.relative_to(KB_ROOT)),
+            'error': str(e),
+            'status': 'error'
+        })
             try:
                 content = md_file.read_text(encoding='utf-8')
                 
