@@ -97,18 +97,62 @@ author: Luna
 
 **功能**：抓取知乎、微博、抖音、虎嗅、掘金等平台热搜
 
+**⚠️ 渠道优先级策略（重要）**：
+
+| 优先级 | 平台 | 分类方式 | 抓取方式 |
+|--------|------|----------|----------|
+| **P1（最精准）** | 虎嗅前沿科技 | 直接分类URL | `opencli web read --url https://www.huxiu.com/channel/105.html` |
+| **P1** | 虎嗅3C数码 | 直接分类URL | `opencli web read --url https://www.huxiu.com/channel/121.html` |
+| **P1** | 掘金 | 整站开发 | `opencli web read --url https://juejin.cn/` |
+| **P2** | 微博 | category过滤 | `opencli weibo hot` + 过滤 `category="互联网"` |
+| **P3** | 知乎/抖音 | 关键词匹配 | 无分类，只能关键词筛选 |
+
+**OpenCLI 环境要求**：
+- **Node版本**：必须用 v20（v22有undici兼容问题，v18不支持styleText）
+- 安装：`nvm use 20 && npm install -g @jackwener/opencli@1.6.0`
+- 验证：`opencli weibo hot --limit 10 --format json`
+
+**分类URL抓取示例**：
+```bash
+# 虎嗅前沿科技（最精准）
+opencli web read --url https://www.huxiu.com/channel/105.html --output /tmp/huxiu_articles
+
+# 输出文章列表（Markdown格式）
+# 包含标题、作者、发布时间、链接
+```
+
+**微博分类过滤示例**：
+```bash
+# 获取热搜，过滤特定分类
+opencli weibo hot --limit 50 --format json | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+filtered = [d for d in data if d.get('category') in ['互联网', '民生新闻']]
+for d in filtered: print(d.get('word'))
+"
+```
+
 **配置**（`~/.hermes/mcn_config.yaml`）：
 ```yaml
 hotspot:
+  channels:
+    # 有分类URL的平台（优先）
+    huxiu_tech:
+      url: https://www.huxiu.com/channel/105.html
+      type: channel_direct
+      domain: 科技
+      
+    # 微博分类过滤
+    weibo:
+      cmd: opencli weibo hot --limit 50
+      type: opencli_filter
+      filter:
+        categories: [互联网, 民生新闻]
+        
   domains:
     - name: 科技
-      keywords: [科技，数码，手机，AI, 互联网]
-      platforms: [weibo, zhihu, toutiao, huxiu]
-      top_n: 10
     - name: 编程
-      keywords: [编程，代码，开发，程序员]
-      platforms: [zhihu, juejin]
-      top_n: 10
+    - name: AI应用
 ```
 
 **执行**：
@@ -192,19 +236,36 @@ image_generation:
       timeout: 120
 ```
 
-**⚠️ API 调用方式（重要）**：
+**⚠️ API 调用方式（重要 - 已优化）**：
 
-使用 `webHook="-1"` + 轮询 result 模式：
+使用 **假地址 webHook** + 轮询 result 模式（避免超时浪费积分）：
 
 ```
-1. POST /v1/draw/nano-banana {"prompt": "...", "webHook": "-1"}
+1. POST /v1/draw/nano-banana 
+   {"model": "nano-banana-fast", "prompt": "...", "webHook": "http://192.168.1.1"}
    → 返回 {"data": {"id": "task_id"}}
+   
+   ⚠️ 关键：webHook 必须是假地址（如 http://192.168.1.1），不能是 "-1" 或空！
 
-2. POST /v1/draw/result {"id": "task_id"}  （轮询，最多60次，间隔2秒）
-   → 返回 {"data": {"status": "succeeded", "results": [{"url": "..."}]}}
+2. POST /v1/draw/result {"id": "task_id"}  （轮询，最多60次，间隔5秒）
+   → status: "running" → 继续等待
+   → status: "succeeded" → 下载图片
+   → status: "failed" → 换prompt重试
+   → 超过5分钟仍running → 放弃不重试（避免积分浪费）
 ```
 
-**⚠️ SSL 超时问题**：execute_code 中 urllib.request 经常超时，推荐用 terminal + curl
+**积分节省要点**：
+| 问题 | 解决方案 |
+|------|----------|
+| 重复提交相同任务 | task_id持久化到tasks.json |
+| 超时后重新提交所有 | 检查已有task_id，增量继续 |
+| 相同prompt失败后继续 | 换prompt变体，不重复 |
+| SSL超时触发重试 | 用terminal+curl而非execute_code |
+
+**执行脚本**：
+```bash
+python scripts/generate-images.py --topic "主题名" --count 4 --date YYYY-MM-DD
+```
 
 **执行流程**：
 1. 根据主题生成关键词列表
