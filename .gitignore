@@ -68,6 +68,7 @@ skills/web/web-fetcher/server/node_modules/
 skills/.DS_Store
 skills/.bundled_manifest
 skills/*/.DS_Store
+**/*.pyc
 
 # 注意：新安装官方技能后需要添加到此文件
 

@@ -324,10 +324,10 @@ def main():
     
     print()
     print("=== P3 渠道（36kr补充）===")
-    36kr = fetch_36kr_news()
+    kr36 = fetch_36kr_news()
     
     # 合并所有热点
-    all_articles = huxiu_tech + huxiu_3c + juejin + weibo + 36kr
+    all_articles = huxiu_tech + huxiu_3c + juejin + weibo + kr36
     
     print()
     print("=" * 60)
