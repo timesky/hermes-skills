@@ -85,7 +85,7 @@ def get_app_access_token():
 
 def load_topic_report(date):
     """加载选题报告"""
-    report_path = KB_ROOT + "/tmp/topic/" + date + "/recommend.md"
+    report_path = MCN_ROOT + "/topic/" + date + "/recommend.md"
     
     if not os.path.exists(report_path):
         print("✗ 选题报告不存在：" + report_path)

@@ -162,17 +162,21 @@ def md_to_html(md_content, image_urls):
         else:
             html_parts.append(f'<p>{line}</p>')
     
-    # 在合适位置插入图片
+    # 在合适位置插入图片（均匀分布）
     html_content = '\n'.join(html_parts)
     
-    # 简化：在第 3 和第 5 个段落后插入图片
     parts = html_content.split('</p>')
-    if len(image_urls) > 0 and len(parts) > 5:
-        parts[2] += f'</p><p><img src="{image_urls[0]}"/></p>'
-    if len(image_urls) > 1 and len(parts) > 10:
-        parts[5] += f'</p><p><img src="{image_urls[1]}"/></p>'
-    if len(image_urls) > 2 and len(parts) > 15:
-        parts[8] += f'</p><p><img src="{image_urls[2]}"/></p>'
+    total_parts = len(parts)
+    
+    # 根据图片数量动态计算插入位置
+    for i, img_url in enumerate(image_urls):
+        # 在文章 20%, 40%, 60%, 80% 位置插入图片
+        insert_ratio = 0.2 + (i * 0.2)
+        insert_pos = int(total_parts * insert_ratio)
+        
+        if insert_pos < len(parts) - 1:
+            parts[insert_pos] += f'</p><p><img src="{img_url}"/></p>'
+            print(f"   插入图片 {i+1} 在位置 {insert_pos} ({int(insert_ratio*100)}%)")
     
     html_content = ''.join(parts)
     
@@ -232,13 +236,28 @@ def main():
     print(f"✅ Token: {access_token[:20]}...")
     
     # 确定图片目录
-    images_dir = os.path.join(KB_ROOT, "tmp/images", args.date)
+    images_dir = os.path.join(MCN_ROOT, "content", args.date, "images")
     
     # 上传封面图
     print("\n[2] 上传封面图...")
-    cover_path = os.path.join(images_dir, "cover.png")
-    if not os.path.exists(cover_path):
-        print(f"❌ 封面图不存在: {cover_path}")
+    # 尝试多个可能的封面图位置
+    cover_candidates = [
+        os.path.join(images_dir, "cover.png"),
+        os.path.join(images_dir, "cover", "cover.png"),
+        os.path.join(MCN_ROOT, "images", args.date, "cover.png"),
+        os.path.join(KB_ROOT, "tmp", "images", args.date, "cover.png")
+    ]
+    
+    cover_path = None
+    for candidate in cover_candidates:
+        if os.path.exists(candidate):
+            cover_path = candidate
+            break
+    
+    if not cover_path:
+        print(f"❌ 封面图不存在，尝试过的路径:")
+        for c in cover_candidates:
+            print(f"   {c}")
         sys.exit(1)
     
     thumb_media_id = upload_permanent_image(access_token, cover_path)
@@ -250,15 +269,20 @@ def main():
     # 上传正文配图
     print("\n[3] 上传正文配图...")
     image_urls = []
-    image_files = ["img_1.png", "img_2.png", "img_3.png"]
     
-    for img_file in image_files:
-        img_path = os.path.join(images_dir, img_file)
-        if os.path.exists(img_path):
+    # 动态扫描 images_dir 中的所有 img_*.png 文件
+    if os.path.exists(images_dir):
+        img_files = sorted([f for f in os.listdir(images_dir) if f.startswith("img_") and f.endswith(".png")])
+        print(f"发现 {len(img_files)} 张配图: {', '.join(img_files)}")
+        
+        for img_file in img_files:
+            img_path = os.path.join(images_dir, img_file)
             url = upload_content_image(access_token, img_path)
             if url:
                 image_urls.append(url)
                 print(f"✅ {img_file}: {url[:50]}...")
+    else:
+        print(f"⚠️ 图片目录不存在: {images_dir}")
     
     print(f"共上传 {len(image_urls)} 张配图")
     

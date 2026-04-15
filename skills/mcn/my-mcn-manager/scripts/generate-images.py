@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
 #!/usr/bin/env python3
 """
-配图生成脚本 - 优化版本
+配图生成脚本 - 并发版本
 
-关键改进：
-1. webHook 使用假地址（而非 -1）
-2. task_id 持久化到文件，避免重试丢失
-3. 轮询频率 5秒，最大等待 5分钟
-4. 超时放弃不重试，积分不浪费
-5. failed 时换 prompt，不重复相同 prompt
+关键设计：
+1. 创建接口拿到 task_id 就不重试（绝对禁止）
+2. result 接口可以轮询
+3. 并发提交所有任务 → 并发等待结果 → 并发下载
+4. 超时记录 task_id 供找回，不消耗积分重试
 
 用法:
     python generate-images.py --topic "编程学习" --count 4 --date 2026-04-14
-
-输出:
-    mcn/images/{date}/cover.png, img_1.png, img_2.png, ...
 """
 
 import sys
@@ -22,9 +18,9 @@ import os
 import json
 import time
 import argparse
-import subprocess
+import concurrent.futures
+from datetime import datetime
 
-# 使用 requests 库（更稳定）
 try:
     import requests
 except ImportError:
@@ -46,262 +42,196 @@ def load_env():
 load_env()
 
 # 配置常量
-API_BASE = "https://grsai.dakka.com.cn"
-API_KEY = os.environ.get('GRSAI_API_KEY', 'sk-0c6f0263a0d24861bf954f5a7154e369')
-MODEL = "nano-banana-fast"
+MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 
-# 轮询参数（关键改进）
+def load_config():
+    import yaml
+    with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+_config = load_config()
+_image_config = _config.get('image_generation', {})
+_grsai_config = _image_config.get('providers', {}).get('grsai', {})
+
+API_BASE = _grsai_config.get('api_url', 'https://grsai.dakka.com.cn/v1/draw/nano-banana').replace('/v1/draw/nano-banana', '')
+API_KEY = _grsai_config.get('api_key', '')
+MODEL_NAME = _grsai_config.get('models', {}).get(_grsai_config.get('default_model', 'fast'), 'nano-banana-fast')
+
+# 轮询参数
 POLL_INTERVAL = 5  # 5秒间隔
 MAX_POLL_COUNT = 60  # 60次 = 5分钟
-MAX_TIMEOUT = 300  # 5分钟最大等待
 
-# 假地址（关键：不能是 -1 或空）
 FAKE_WEBHOOK = "http://192.168.1.1"
 
-# 知识库路径
 KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
 MCN_ROOT = KB_ROOT + "/mcn"
 
 
-class ImageGenerator:
-    """图片生成器，支持任务持久化"""
+def submit_single_image(name, prompt):
+    """提交单个图片任务，返回 task_id 或 None"""
     
-    def __init__(self, output_dir):
-        self.output_dir = output_dir
-        self.tasks_file = os.path.join(output_dir, "tasks.json")
-        self.tasks = self._load_tasks()
+    url = API_BASE + "/v1/draw/nano-banana"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + API_KEY
+    }
+    payload = {
+        "model": MODEL_NAME,
+        "prompt": prompt,
+        "webHook": FAKE_WEBHOOK,
+        "shutProgress": False
+    }
+    
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=30)
+        result = resp.json()
         
-    def _load_tasks(self):
-        """加载未完成的任务"""
-        if os.path.exists(self.tasks_file):
-            with open(self.tasks_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return {}
+        if result.get('code') == 0 and result.get('data'):
+            task_id = result['data']['id']
+            print(f"  ✅ [{name}] 提交成功: {task_id}")
+            return {'name': name, 'task_id': task_id, 'prompt': prompt, 'status': 'submitted'}
+        else:
+            print(f"  ❌ [{name}] 提交失败: {result.get('msg', result)}")
+            # 创建失败不重试！记录失败
+            return {'name': name, 'task_id': None, 'prompt': prompt, 'status': 'submit_failed', 'error': result.get('msg')}
+    except Exception as e:
+        print(f"  ❌ [{name}] 提交异常: {e}")
+        return {'name': name, 'task_id': None, 'prompt': prompt, 'status': 'submit_error', 'error': str(e)}
+
+
+def poll_single_result(task_info, output_dir):
+    """轮询单个任务结果，返回成功则下载"""
     
-    def _save_tasks(self):
-        """保存任务状态"""
-        with open(self.tasks_file, 'w', encoding='utf-8') as f:
-            json.dump(self.tasks, f, indent=2, ensure_ascii=False)
+    name = task_info['name']
+    task_id = task_info['task_id']
     
-    def _get_task_key(self, name, prompt):
-        """生成任务唯一键"""
-        return f"{name}:{prompt[:30]}"
+    if not task_id:
+        return task_info  # 没有task_id，直接返回
     
-    def submit_task(self, name, prompt):
-        """提交任务，返回 task_id"""
-        
-        # 检查是否已有相同任务
-        task_key = self._get_task_key(name, prompt)
-        if task_key in self.tasks:
-            existing = self.tasks[task_key]
-            if existing.get('status') == 'running':
-                print(f"  发现已有任务: {existing['task_id']}")
-                return existing['task_id']
-            elif existing.get('status') == 'succeeded':
-                print(f"  任务已完成，跳过提交")
-                return existing['task_id']
-        
-        url = API_BASE + "/v1/draw/nano-banana"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + API_KEY
-        }
-        payload = {
-            "model": MODEL,
-            "prompt": prompt,
-            "webHook": FAKE_WEBHOOK,  # 关键：假地址
-            "shutProgress": False
-        }
+    url = API_BASE + "/v1/draw/result"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + API_KEY
+    }
+    
+    poll_count = 0
+    
+    while poll_count < MAX_POLL_COUNT:
+        poll_count += 1
         
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=30)
+            resp = requests.post(url, headers=headers, json={"id": task_id}, timeout=30)
             result = resp.json()
             
             if result.get('code') == 0 and result.get('data'):
-                task_id = result['data']['id']
-                # 保存任务
-                self.tasks[task_key] = {
-                    'task_id': task_id,
-                    'name': name,
-                    'prompt': prompt,
-                    'status': 'running',
-                    'submit_time': time.time()
-                }
-                self._save_tasks()
-                return task_id
-            else:
-                print(f"  提交失败: {result}")
-                return None
-        except Exception as e:
-            print(f"  提交错误: {e}")
-            return None
-    
-    def poll_result(self, task_id, name, prompt):
-        """轮询结果，最多5分钟"""
-        
-        url = API_BASE + "/v1/draw/result"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + API_KEY
-        }
-        
-        start_time = time.time()
-        poll_count = 0
-        
-        while poll_count < MAX_POLL_COUNT:
-            poll_count += 1
-            
-            try:
-                resp = requests.post(url, headers=headers, json={"id": task_id}, timeout=30)
-                result = resp.json()
+                data = result['data']
+                status = data.get('status')
                 
-                if result.get('code') == 0 and result.get('data'):
-                    data = result['data']
-                    status = data.get('status')
-                    progress = data.get('progress', 0)
-                    
-                    # 每5次显示进度
-                    if poll_count % 5 == 0:
-                        elapsed = int(time.time() - start_time)
-                        print(f"  [{poll_count}/{MAX_POLL_COUNT}] {status} {progress}% ({elapsed}s)")
-                    
-                    if status == 'succeeded':
-                        results = data.get('results', [])
-                        if results:
-                            # 更新任务状态
-                            task_key = self._get_task_key(name, prompt)
-                            self.tasks[task_key]['status'] = 'succeeded'
-                            self.tasks[task_key]['image_url'] = results[0].get('url')
-                            self._save_tasks()
-                            return results[0].get('url')
-                    
-                    elif status == 'failed':
-                        failure_reason = data.get('failure_reason', 'unknown')
-                        print(f"  ❌ 失败: {failure_reason}")
-                        # 更新任务状态
-                        task_key = self._get_task_key(name, prompt)
-                        self.tasks[task_key]['status'] = 'failed'
-                        self.tasks[task_key]['failure_reason'] = failure_reason
-                        self._save_tasks()
-                        return None
-                    
-                    elif status == 'running':
-                        # 继续等待
-                        time.sleep(POLL_INTERVAL)
-                    
-                    else:
-                        print(f"  未知状态: {status}")
-                        time.sleep(POLL_INTERVAL)
-                        
-            except Exception as e:
-                print(f"  轮询错误: {e}")
-                time.sleep(POLL_INTERVAL)
-        
-        # 超时处理：放弃不重试
-        elapsed = int(time.time() - start_time)
-        print(f"  ⏱️ 超时 ({elapsed}s)，放弃此任务")
-        task_key = self._get_task_key(name, prompt)
-        self.tasks[task_key]['status'] = 'timeout'
-        self._save_tasks()
-        return None
-    
-    def download_image(self, url, output_path):
-        """下载图片"""
-        try:
-            resp = requests.get(url, timeout=60)
-            with open(output_path, 'wb') as f:
-                f.write(resp.content)
-            return os.path.getsize(output_path)
+                if poll_count % 10 == 0:  # 每50秒报告一次
+                    print(f"  [{name}] 状态: {status} ({poll_count * POLL_INTERVAL}s)")
+                
+                if status == 'succeeded':
+                    results = data.get('results', [])
+                    if results:
+                        image_url = results[0].get('url')
+                        # 下载图片
+                        download_result = download_image(name, image_url, output_dir, name == 'cover')
+                        if download_result:
+                            task_info['status'] = 'completed'
+                            task_info['image_url'] = image_url
+                        else:
+                            task_info['status'] = 'download_failed'
+                        return task_info
+                
+                elif status == 'failed':
+                    task_info['status'] = 'failed'
+                    task_info['error'] = data.get('failure_reason', 'unknown')
+                    return task_info
+                
+                elif status == 'running':
+                    time.sleep(POLL_INTERVAL)
+            
         except Exception as e:
-            print(f"  下载错误: {e}")
-            return 0
+            print(f"  [{name}] 轮询异常: {e}")
+            time.sleep(POLL_INTERVAL)
     
-    def resize_cover(self, input_path, output_path, width=900, height=500):
-        """调整封面图尺寸"""
-        try:
-            subprocess.run([
-                'sips', '-z', str(height), str(width),
-                input_path, '--out', output_path
-            ], capture_output=True)
-            return True
-        except Exception as e:
-            print(f"  调整尺寸错误: {e}")
-            return False
+    # 超时 - 记录 task_id 供找回，不重试
+    task_info['status'] = 'timeout'
+    task_info['error'] = f'超时 {MAX_POLL_COUNT * POLL_INTERVAL}s'
+    print(f"  ⏰ [{name}] 超时，task_id={task_id} 已记录")
+    return task_info
+
+
+def download_image(name, url, output_dir, is_cover=False):
+    """下载图片"""
     
-    def generate_image(self, name, prompt, is_cover=False):
-        """生成单张图片的完整流程"""
-        
-        output_path = os.path.join(self.output_dir, f"{name}.png")
-        
-        # 检查是否已存在
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            print(f"[{name}] 已存在，跳过")
-            return True
-        
-        print(f"[{name}] 提交任务...")
-        print(f"  Prompt: {prompt[:50]}...")
-        
-        task_id = self.submit_task(name, prompt)
-        if not task_id:
-            print(f"  ❌ 提交失败")
+    try:
+        resp = requests.get(url, timeout=60, stream=True)
+        if resp.status_code != 200:
+            print(f"  ❌ [{name}] 下载失败: HTTP {resp.status_code}")
             return False
         
-        print(f"  Task ID: {task_id}")
+        filename = f"{name}.png"
+        output_path = os.path.join(output_dir, filename)
         
-        # 轮询结果
-        image_url = self.poll_result(task_id, name, prompt)
-        if not image_url:
-            return False
-        
-        print(f"  URL: {image_url[:50]}...")
-        
-        # 下载
-        temp_path = os.path.join(self.output_dir, f"{name}_temp.png")
-        size = self.download_image(image_url, temp_path)
-        
-        if size == 0:
-            print(f"  ❌ 下载失败")
-            return False
+        with open(output_path, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8192):
+                f.write(chunk)
         
         # 封面图调整尺寸
         if is_cover:
-            self.resize_cover(temp_path, output_path, 900, 500)
-            os.remove(temp_path)
-        else:
-            os.rename(temp_path, output_path)
+            resize_cover(output_path, 900, 500)
         
-        final_size = os.path.getsize(output_path)
-        print(f"  ✅ 完成 ({final_size/1024:.1f} KB)")
+        size_kb = os.path.getsize(output_path) / 1024
+        print(f"  ✅ [{name}] 下载完成: {filename} ({size_kb:.1f} KB)")
         return True
+    
+    except Exception as e:
+        print(f"  ❌ [{name}] 下载异常: {e}")
+        return False
 
 
-def generate_prompt(topic, image_type, variant=0):
-    """生成 prompt，支持变体"""
+def resize_cover(path, target_w=900, target_h=500):
+    """调整封面图尺寸"""
+    try:
+        from PIL import Image
+        img = Image.open(path)
+        img = img.resize((target_w, target_h), Image.LANCZOS)
+        img.save(path, 'PNG')
+    except ImportError:
+        print("  ⚠️ PIL 未安装，跳过尺寸调整")
+    except Exception as e:
+        print(f"  ⚠️ 尺寸调整失败: {e}")
+
+
+def generate_prompts(topic, count):
+    """生成所有图片的 prompts"""
     
-    base_prompts = {
-        "cover": [
-            f"{topic} concept art, professional digital illustration, modern tech style, blue gradient, high quality",
-            f"{topic} visual design, futuristic concept, clean composition, professional artwork",
-        ],
-        "content": [
-            f"{topic} illustration, modern minimalist design, tech atmosphere, clean style",
-            f"{topic} diagram, professional infographic style, digital art, modern design",
-            f"{topic} scene, technology theme, warm lighting, professional quality",
-        ]
-    }
+    prompts = []
     
-    prompts = base_prompts.get(image_type, base_prompts["content"])
+    # 封面图
+    cover_prompts = [
+        f"{topic} concept art, professional digital illustration, modern tech style, blue gradient, high quality",
+        f"{topic} visual design, futuristic concept, clean composition, professional artwork",
+    ]
+    prompts.append({'name': 'cover', 'prompt': cover_prompts[0]})
     
-    # 如果之前的 prompt 失败，使用变体
-    if variant < len(prompts):
-        return prompts[variant]
-    else:
-        # 添加随机元素避免完全相同
-        return prompts[0] + f", variant {variant}"
+    # 内容图
+    content_prompts = [
+        f"{topic} illustration, modern minimalist design, tech atmosphere, clean style",
+        f"{topic} diagram, professional infographic style, digital art, modern design",
+        f"{topic} scene, technology theme, warm lighting, professional quality",
+    ]
+    
+    for i in range(count - 1):
+        idx = i % len(content_prompts)
+        prompts.append({'name': f'img_{i+1}', 'prompt': content_prompts[idx]})
+    
+    return prompts
 
 
 def main():
-    parser = argparse.ArgumentParser(description='配图生成（优化版）')
+    parser = argparse.ArgumentParser(description='配图生成（并发版）')
     parser.add_argument('--topic', type=str, required=True, help='文章主题')
     parser.add_argument('--count', type=int, default=4, help='图片数量')
     parser.add_argument('--date', type=str, required=True, help='日期 (YYYY-MM-DD)')
@@ -313,70 +243,69 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     print("=" * 60)
-    print("配图生成（优化版）")
+    print("配图生成（并发版）")
     print("=" * 60)
     print(f"主题: {args.topic}")
     print(f"数量: {args.count}")
-    print(f"API: {API_BASE}")
+    print(f"模型: {MODEL_NAME}")
     print(f"输出: {output_dir}")
-    print(f"webHook: {FAKE_WEBHOOK}")
-    print(f"轮询: {POLL_INTERVAL}s × {MAX_POLL_COUNT} = {MAX_TIMEOUT}s")
+    print(f"模式: 并发提交 → 并发等待")
     print()
     
-    generator = ImageGenerator(output_dir)
+    # Step 1: 生成所有 prompts
+    all_prompts = generate_prompts(args.topic, args.count)
     
-    # 图片列表
-    images = [
-        {"name": "cover", "type": "cover", "variant": 0},
-    ]
-    for i in range(args.count - 1):
-        images.append({"name": f"img_{i+1}", "type": "content", "variant": i % 3})
+    # Step 2: 并发提交所有任务
+    print("Step 1: 并发提交任务...")
+    submitted_tasks = []
     
-    success_count = 0
-    failed_images = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.count) as executor:
+        futures = [executor.submit(submit_single_image, p['name'], p['prompt']) for p in all_prompts]
+        for future in concurrent.futures.as_completed(futures):
+            submitted_tasks.append(future.result())
     
-    for img in images:
-        prompt = generate_prompt(args.topic, img["type"], img["variant"])
-        is_cover = img["type"] == "cover"
-        
-        # 最多尝试2个变体
-        for attempt in range(2):
-            if attempt > 0:
-                # 失败后换 prompt
-                prompt = generate_prompt(args.topic, img["type"], img["variant"] + attempt)
-                print(f"[{img['name']}] 换 prompt 重试 (变体 {attempt})...")
-            
-            success = generator.generate_image(img["name"], prompt, is_cover)
-            if success:
-                success_count += 1
-                break
-            elif attempt == 0:
-                continue  # 尝试下一个变体
-            else:
-                failed_images.append(img["name"])
+    # 保存任务状态
+    tasks_file = os.path.join(output_dir, "tasks.json")
+    with open(tasks_file, 'w', encoding='utf-8') as f:
+        json.dump(submitted_tasks, f, indent=2, ensure_ascii=False)
+    print(f"  任务状态已保存: {tasks_file}")
+    print()
     
-    # 清理任务文件（全部成功后）
-    if success_count >= args.count - 1:
-        tasks_file = os.path.join(output_dir, "tasks.json")
-        if os.path.exists(tasks_file):
-            os.remove(tasks_file)
+    # Step 3: 并发轮询结果
+    print("Step 2: 并发等待结果...")
+    final_tasks = []
     
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.count) as executor:
+        futures = [executor.submit(poll_single_result, task, output_dir) for task in submitted_tasks]
+        for future in concurrent.futures.as_completed(futures):
+            final_tasks.append(future.result())
+    
+    # 更新任务状态
+    with open(tasks_file, 'w', encoding='utf-8') as f:
+        json.dump(final_tasks, f, indent=2, ensure_ascii=False)
+    
+    # 统计结果
     print()
     print("=" * 60)
-    print(f"完成: {success_count}/{args.count}")
-    if failed_images:
-        print(f"失败: {failed_images}")
+    completed = [t for t in final_tasks if t['status'] == 'completed']
+    failed = [t for t in final_tasks if t['status'] != 'completed']
+    
+    print(f"完成: {len(completed)}/{args.count}")
+    if failed:
+        print(f"失败/超时: {[f['name'] for f in failed]}")
+        print(f"  可用 task_id 找回: {[f['task_id'] for f in failed if f['task_id']]}")
+    
     print("=" * 60)
     
     # 列出生成的文件
     print("\n生成的文件:")
-    for f in os.listdir(output_dir):
-        if f.endswith('.png') and not f.endswith('_temp.png'):
-            path = os.path.join(output_dir, f)
-            print(f"  {f} ({os.path.getsize(path)/1024:.1f} KB)")
-    
-    sys.exit(0 if success_count >= 3 else 1)
+    for t in completed:
+        filename = f"{t['name']}.png"
+        path = os.path.join(output_dir, filename)
+        if os.path.exists(path):
+            size_kb = os.path.getsize(path) / 1024
+            print(f"  {filename} ({size_kb:.1f} KB)")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

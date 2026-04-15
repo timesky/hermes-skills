@@ -10,6 +10,7 @@ import argparse
 from datetime import datetime
 
 KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+MCN_ROOT = f"{KB_ROOT}/mcn"
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 
 def load_config():
@@ -17,31 +18,40 @@ def load_config():
         return yaml.safe_load(f)
 
 def load_hotspot_data(date: str) -> list:
-    pattern = f"{KB_ROOT}/tmp/hotspot/{date}/*.md"
-    files = glob.glob(pattern)
+    """从 mcn/hotspot/{date}/hotspot-aggregated.md 读取热点数据"""
+    filepath = f"{MCN_ROOT}/hotspot/{date}/hotspot-aggregated.md"
     
-    if not files:
-        print(f"⚠️ 未找到 {date} 的热搜数据")
+    if not os.path.exists(filepath):
+        print(f"⚠️ 未找到 {date} 的热搜数据: {filepath}")
         return []
     
+    content = open(filepath, encoding='utf-8').read()
     all_items = []
     
-    for filepath in files:
-        content = open(filepath, encoding='utf-8').read()
-        platform = os.path.basename(filepath).replace('-hotspot.md', '')
-        
-        for line in content.split('\n'):
-            if line.strip().startswith('|') and len(line.split('|')) >= 5:
-                parts = [p.strip() for p in line.split('|')]
-                if parts[1] not in ['排名', '']:
-                    item = {
-                        'rank': parts[1],
-                        'title': parts[2],
-                        'heat': parts[3],
-                        'url': parts[4].replace('[查看](', '').replace(')', ''),
-                        'source': platform
-                    }
-                    all_items.append(item)
+    # 解析 Markdown 列表格式: 1. [title](url) [category] (热度:xxx)
+    for line in content.split('\n'):
+        if line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.', '10.', '11.', '12.', '13.', '14.', '15.', '16.', '17.', '18.', '19.', '20.')):
+            # 提取标题和链接
+            match = re.search(r'\[([^\]]+)\]\(([^)]+)\)', line)
+            if match:
+                title = match.group(1).strip()
+                url = match.group(2).strip()
+                
+                # 提取热度 (热度:xxx)
+                heat_match = re.search(r'热度[:\s]*(\d+)', line)
+                heat = heat_match.group(1) if heat_match else 'N/A'
+                
+                # 提取来源（从分组标题推断）
+                source = 'unknown'
+                
+                item = {
+                    'rank': len(all_items) + 1,
+                    'title': title,
+                    'heat': heat,
+                    'url': url,
+                    'source': source
+                }
+                all_items.append(item)
     
     print(f"✓ 加载 {len(all_items)} 条热搜数据")
     return all_items
@@ -75,11 +85,23 @@ def score_topic(item: dict, domains: list) -> dict:
     relevance_score = 0
     matched_domain = None
     
+    # 关键词库：每个领域的匹配关键词
+    domain_keywords = {
+        '科技': ['科技', '芯片', 'ChatGPT', '大模型', '5G', '云计算', 'AI', '人工智能', '手机', '数码', '3C', '智能', '互联网'],
+        '编程': ['编程', 'GitHub', '开源', '全栈', '前端', '后端', '开发', '代码', '技术', '软件', '算法', '掘金'],
+        'AI应用': ['AI', 'GPT', '大模型', 'LLM', '深度学习', '机器学习', 'AI创业', 'AI软件', '智能助手', 'AI应用'],
+        '机器人': ['机器人', '自动驾驶', '智能硬件', '无人机', '机器人', '宇树', '人形机器人', '机器狗'],
+        '综合': []  # 综合领域不匹配关键词
+    }
+    
     for domain in domains:
-        for keyword in domain['keywords']:
+        domain_name = domain['name']
+        keywords = domain.get('keywords', domain_keywords.get(domain_name, [domain_name]))
+        
+        for keyword in keywords:
             if keyword.lower() in title_lower:
                 relevance_score = max(relevance_score, 70 + len(keyword) * 3)
-                matched_domain = domain['name']
+                matched_domain = domain_name
                 break
     
     total_score = heat_score * 0.4 + relevance_score * 0.6
@@ -165,7 +187,7 @@ def main():
     
     report = generate_report(scored_items, date, args.top)
     
-    output_dir = f"{KB_ROOT}/tmp/topic/{date}"
+    output_dir = f"{MCN_ROOT}/topic/{date}"
     os.makedirs(output_dir, exist_ok=True)
     output_path = f"{output_dir}/recommend.md"
     

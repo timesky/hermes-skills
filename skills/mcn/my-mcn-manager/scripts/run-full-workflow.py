@@ -19,6 +19,7 @@ import subprocess
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 WECHAT_CONFIG = os.path.expanduser("~/.hermes/wechat_mp_config.yaml")
 KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+MCN_ROOT = KB_ROOT + "/mcn"
 
 def load_config():
     """加载配置"""
@@ -48,7 +49,7 @@ def run_hotspot_research(date: str = None):
         
         if result.returncode == 0:
             # 保存结果
-            output_dir = f"{KB_ROOT}/tmp/hotspot/{date}"
+            output_dir = f"{MCN_ROOT}/hotspot/{date}"
             os.makedirs(output_dir, exist_ok=True)
             
             # 提取 JSON
@@ -104,7 +105,7 @@ def run_topic_analysis(date: str = None):
     domains = config['hotspot']['domains']
     
     # 读取热搜数据
-    hotspot_dir = f"{KB_ROOT}/tmp/hotspot/{date}"
+    hotspot_dir = f"{MCN_ROOT}/hotspot/{date}"
     if not os.path.exists(hotspot_dir):
         print(f"✗ 热搜数据不存在：{hotspot_dir}")
         print("请先执行阶段 1：热点调研")
@@ -114,7 +115,7 @@ def run_topic_analysis(date: str = None):
     # TODO: 实现选题分析逻辑
     
     # 生成推荐报告
-    output_dir = f"{KB_ROOT}/tmp/topic/{date}"
+    output_dir = f"{MCN_ROOT}/topic/{date}"
     os.makedirs(output_dir, exist_ok=True)
     
     report = f"""---
@@ -146,7 +147,7 @@ def run_content_generation(topic: str, style: str = 'professional'):
     print(f"\n=== 阶段 3: 内容生成 - 主题：{topic} ===")
     
     date = datetime.datetime.now().strftime("%Y-%m-%d")
-    output_dir = f"{KB_ROOT}/tmp/content/{date}"
+    output_dir = f"{MCN_ROOT}/content/{date}"
     os.makedirs(output_dir, exist_ok=True)
     
     # TODO: 实现内容生成逻辑

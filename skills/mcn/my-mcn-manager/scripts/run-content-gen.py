@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 内容生成脚本 - 根据选题生成公众号文章
 
@@ -21,6 +22,7 @@ from datetime import datetime
 # 配置
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+MCN_ROOT = KB_ROOT + "/mcn"
 
 def load_config():
     """加载配置"""
@@ -29,7 +31,7 @@ def load_config():
 
 def read_topic_report(date: str):
     """读取选题报告"""
-    filename = f"{KB_ROOT}/tmp/topic/{date}/recommend.md"
+    filename = f"{MCN_ROOT}/topic/{date}/recommend.md"
     if not os.path.exists(filename):
         print(f"✗ 选题报告不存在：{filename}")
         return None
@@ -319,7 +321,7 @@ def generate_article(topic: str, style: str = 'professional') -> dict:
     
     # 保存文章
     date_str = datetime.now().strftime("%Y-%m-%d")
-    output_dir = f"{KB_ROOT}/tmp/content/{date_str}"
+    output_dir = f"{MCN_ROOT}/content/{date_str}"
     os.makedirs(output_dir, exist_ok=True)
     
     filename = f"{output_dir}/{topic.replace(' ', '-')}.md"
