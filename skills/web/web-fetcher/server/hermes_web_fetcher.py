@@ -118,6 +118,257 @@ class HermesWebFetcher:
     async def get_page_info(self, tab_id: int) -> Dict[str, Any]:
         """Get page info from a tab"""
         return await self._send_request("Hermes.getPageInfo", {"tabId": tab_id})
+    
+    # ========== Control Methods (v2.0) ==========
+    
+    async def fill_input(self, tab_id: int, selector: str, value: str, 
+                         clear_first: bool = True, trigger_react: bool = False) -> Dict[str, Any]:
+        """
+        Fill input/textarea/contenteditable element (supports Draft.js, React)
+        
+        Args:
+            tab_id: Tab ID
+            selector: CSS selector for the element
+            value: Text to fill
+            clear_first: Clear existing content first (default True)
+            trigger_react: Force React/Draft.js handling (default False, auto-detected)
+        
+        Returns:
+            Dict with success status and filled content info
+        """
+        return await self._send_request("Hermes.fillInput", {
+            "tabId": tab_id,
+            "selector": selector,
+            "value": value,
+            "options": {"clearFirst": clear_first, "triggerReact": trigger_react}
+        })
+    
+    async def click_element(self, tab_id: int, selector: str,
+                           double_click: bool = False) -> Dict[str, Any]:
+        """
+        Click an element
+        
+        Args:
+            tab_id: Tab ID
+            selector: CSS selector for the element
+            double_click: Perform double click (default False)
+        
+        Returns:
+            Dict with success status
+        """
+        return await self._send_request("Hermes.clickElement", {
+            "tabId": tab_id,
+            "selector": selector,
+            "options": {"doubleClick": double_click}
+        })
+    
+    async def send_keys(self, tab_id: int, selector: str, text: str) -> Dict[str, Any]:
+        """
+        Simulate typing text into element
+        
+        Args:
+            tab_id: Tab ID
+            selector: CSS selector for the element
+            text: Text to type
+        
+        Returns:
+            Dict with success status and typed character count
+        """
+        return await self._send_request("Hermes.sendKeys", {
+            "tabId": tab_id,
+            "selector": selector,
+            "text": text
+        })
+    
+    async def wait_for(self, tab_id: int, selector: str, timeout: int = 5000) -> Dict[str, Any]:
+        """
+        Wait for element to appear and be visible
+        
+        Args:
+            tab_id: Tab ID
+            selector: CSS selector for the element
+            timeout: Timeout in milliseconds (default 5000)
+        
+        Returns:
+            Dict with success status or timeout error
+        """
+        return await self._send_request("Hermes.waitFor", {
+            "tabId": tab_id,
+            "selector": selector,
+            "timeout": timeout
+        })
+    
+    async def call_api(self, tab_id: int, url: str, method: str = "GET",
+                       data: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Call API from within the page (uses page's cookies/auth)
+        
+        Args:
+            tab_id: Tab ID
+            url: API URL
+            method: HTTP method (GET, POST, PUT, DELETE)
+            data: Request body data (for POST/PUT)
+        
+        Returns:
+            Dict with API response
+        """
+        return await self._send_request("Hermes.callApi", {
+            "tabId": tab_id,
+            "url": url,
+            "method": method,
+            "data": data
+        }, timeout=60.0)
+    
+    async def get_element_info(self, tab_id: int, selector: str) -> Dict[str, Any]:
+        """
+        Get element info (value, attributes, state)
+        
+        Args:
+            tab_id: Tab ID
+            selector: CSS selector for the element
+        
+        Returns:
+            Dict with element info
+        """
+        return await self._send_request("Hermes.getElementInfo", {
+            "tabId": tab_id,
+            "selector": selector
+        })
+    
+    async def blur(self, tab_id: int, selector: str) -> Dict[str, Any]:
+        """
+        Blur element (trigger save in auto-save editors)
+        
+        Args:
+            tab_id: Tab ID
+            selector: CSS selector for the element
+        
+        Returns:
+            Dict with success status
+        """
+        return await self._send_request("Hermes.blur", {
+            "tabId": tab_id,
+            "selector": selector
+        })
+    
+    # ========== Screenshot Methods (v2.2) ==========
+    
+    async def screenshot(self, tab_id: int = None, 
+                         options: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Capture screenshot of visible tab
+        
+        Args:
+            tab_id: Tab ID (optional, captures active tab if not specified)
+            options: Dict with format ('png' or 'jpeg'), quality (0-100)
+        
+        Returns:
+            Dict with success, dataUrl (base64 image), format
+        """
+        opts = options or {}
+        return await self._send_request("Hermes.screenshot", {
+            "tabId": tab_id,
+            "options": opts
+        })
+    
+    async def screenshot_to_file(self, tab_id: int = None, 
+                                  filepath: str = None,
+                                  format: str = 'png') -> str:
+        """
+        Capture screenshot and save to file
+        
+        Args:
+            tab_id: Tab ID (optional)
+            filepath: Output file path (default: ~/.hermes/screenshot_{timestamp}.png)
+            format: Image format ('png' or 'jpeg')
+        
+        Returns:
+            File path where screenshot was saved
+        """
+        import base64
+        import os
+        from datetime import datetime
+        
+        result = await self.screenshot(tab_id, {"format": format})
+        
+        if 'error' in result or not result.get('success'):
+            raise Exception(result.get('error', 'Screenshot failed'))
+        
+        # Generate default filepath
+        if not filepath:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filepath = os.path.expanduser(f"~/.hermes/screenshot_{timestamp}.{format}")
+        
+        # Decode base64 and save
+        data_url = result.get('dataUrl', '')
+        if data_url.startswith('data:image'):
+            # Remove data:image/png;base64, prefix
+            base64_data = data_url.split(',', 1)[1]
+            image_data = base64.b64decode(base64_data)
+            
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'wb') as f:
+                f.write(image_data)
+            
+            return filepath
+        
+        raise Exception("Invalid screenshot data format")
+    
+    # ========== Agent Tab Group Methods (v2.1) ==========
+    
+    async def create_agent_tab(self, url: str) -> Dict[str, Any]:
+        """
+        Create new tab in Hermes Agent group (not user's active tab)
+        
+        Args:
+            url: URL to navigate
+        
+        Returns:
+            Dict with tab id, title, url
+        """
+        return await self._send_request("Hermes.createAgentTab", {"url": url})
+    
+    async def add_to_agent_group(self, tab_id: int) -> Dict[str, Any]:
+        """
+        Add existing tab to Hermes Agent group
+        
+        Args:
+            tab_id: Tab ID to add
+        
+        Returns:
+            Dict with groupId and tabId
+        """
+        return await self._send_request("Hermes.addToAgentGroup", {"tabId": tab_id})
+    
+    async def close_agent_tab(self, tab_id: int) -> Dict[str, Any]:
+        """
+        Close an agent tab
+        
+        Args:
+            tab_id: Tab ID to close
+        
+        Returns:
+            Dict with success status
+        """
+        return await self._send_request("Hermes.closeAgentTab", {"tabId": tab_id})
+    
+    async def dissolve_agent_group(self) -> Dict[str, Any]:
+        """
+        Dissolve Hermes Agent group - close all agent tabs
+        
+        Returns:
+            Dict with closed count and ungrouped count
+        """
+        return await self._send_request("Hermes.dissolveAgentGroup")
+    
+    async def list_agent_tabs(self) -> Dict[str, Any]:
+        """
+        List all agent tabs
+        
+        Returns:
+            Dict with groupId, tabs list, count
+        """
+        return await self._send_request("Hermes.listAgentTabs")
 
 
 async def main():

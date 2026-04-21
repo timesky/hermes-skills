@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Hermes Web Fetcher",
-  "version": "1.1.0",
-  "description": "WebSocket relay for Hermes web fetching commands",
+  "version": "2.2.0",
+  "description": "WebSocket relay for Hermes web fetching & control commands (fill, click, API)",
   "permissions": [
     "activeTab",
     "scripting",
     "tabs",
+    "tabGroups",
     "storage",
     "alarms"
   ],

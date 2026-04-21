@@ -1,9 +1,10 @@
 ---
 name: web-fetcher
-description: Chrome 扩展 + WebSocket 服务抓取网页内容（文章、列表、收藏夹）。使用用户已登录的 Cookie，避免 CDP 封禁风险。
-tags: [web, scraping, chrome-extension, websocket]
-version: 1.0.0
+description: Chrome 扩展 + WebSocket 服务抓取网页内容并控制页面（填写表单、点击、API调用）。支持 Draft.js/React 编辑器，使用用户已登录的 Cookie。v2.1 新增 Agent Tab Group，独立页签分组不抢占用户活动页签。
+tags: [web, scraping, chrome-extension, websocket, control, automation]
+version: 2.1.0
 created: 2026-04-11
+updated: 2026-04-20
 ---
 
 # Hermes Web Fetcher 扩展
@@ -136,6 +137,89 @@ async def main():
 | `fetch_article(tab_id)` | tab_id | `{title, content, author, date, url}` |
 | `fetch_list(tab_id, options)` | tab_id, options | `{items, pageInfo, totalItems}` |
 
+### 🆕 控制方法 (v2.0)
+
+**支持 Draft.js/React 编辑器的填写操作：**
+
+|| 方法 | 参数 | 返回 |
+||------|------|------|
+|| `fill_input(tab_id, selector, value, options)` | tab_id, selector, value, {clearFirst, triggerReact} | `{success, filledLength}` |
+|| `click_element(tab_id, selector, options)` | tab_id, selector, {doubleClick} | `{success}` |
+|| `send_keys(tab_id, selector, text)` | tab_id, selector, text | `{success, typed}` |
+|| `wait_for(tab_id, selector, timeout)` | tab_id, selector, timeout_ms | `{success}` 或 `{error: timeout}` |
+|| `blur(tab_id, selector)` | tab_id, selector | `{success}` |
+|| `get_element_info(tab_id, selector)` | tab_id, selector | `{value, contentEditable, ...}` |
+|| `call_api(tab_id, url, method, data)` | tab_id, url, method, data | `{success, status, data}` |
+
+**关键特性：**
+- `fill_input` 自动检测 Draft.js/React 编辑器，触发正确的事件序列
+- `call_api` 使用页面已有的 Cookie/认证，绕过 CORS 限制
+- `blur` 触发自动保存（知乎等自动保存编辑器）
+
+### 🆕 截屏方法 (v2.2)
+
+|| 方法 | 参数 | 返回 |
+|------|------|------|
+|| `screenshot(tab_id, options)` | tab_id, {format, quality} | `{success, dataUrl, format}` - 截取可见区域 |
+|| `screenshot_to_file(tab_id, filepath, format)` | tab_id, filepath, format | `filepath` - 截屏并保存到文件 |
+
+**使用场景：**
+- 登录过期时截屏二维码让用户扫码
+- 记录页面状态用于调试
+- 验证页面布局和渲染效果
+
+**示例：**
+
+```python
+# 截屏并保存到文件
+filepath = await client.screenshot_to_file(tab_id, "~/.hermes/login_qrcode.png")
+
+# 或获取 base64 数据
+result = await client.screenshot(tab_id, {"format": "png"})
+if result.get('success'):
+    data_url = result['dataUrl']  # data:image/png;base64,...
+```
+
+### 🆕 Agent Tab Group (v2.1)
+
+**独立页签分组，不抢占用户当前活动页签：**
+
+|| 方法 | 参数 | 返回 |
+||------|------|------|
+|| `create_agent_tab(url)` | url | `{id, title, url}` - 创建新页签并加入分组 |
+|| `add_to_agent_group(tab_id)` | tab_id | `{groupId, tabId}` - 将已有页签加入分组 |
+|| `close_agent_tab(tab_id)` | tab_id | `{success}` - 关闭指定页签 |
+|| `dissolve_agent_group()` | 无 | `{closed, ungrouped}` - 关闭分组中所有页签 |
+|| `list_agent_tabs()` | 无 | `{groupId, tabs, count}` - 列出分组中的页签 |
+
+**使用场景：**
+- 后台抓取多个页面，不影响用户当前浏览
+- 自动化任务完成后关闭页签，保持浏览器整洁
+- 分组标题 "Hermes Agent"，紫色标识
+
+**示例：**
+
+```python
+async def batch_fetch(urls):
+    client = HermesWebFetcher()
+    await client.connect()
+    
+    results = []
+    for url in urls:
+        # 在 Agent Group 中创建新页签
+        tab = await client.create_agent_tab(url)
+        
+        # 抓取内容
+        article = await client.fetch_article(tab['id'])
+        results.append(article)
+        
+        # 关闭页签
+        await client.close_agent_tab(tab['id'])
+    
+    await client.disconnect()
+    return results
+```
+
 ### 抓取收藏夹示例
 
 ```python
@@ -161,7 +245,105 @@ async def fetch_zhihu_collection(url):
 
 ---
 
+## 💡 实用选择器模式
+
+### Cookie 弹窗处理
+
+```python
+# 常见 cookie 接受按钮选择器
+await client.click_element(tab_id, "button[class*='cookie']")
+await client.click_element(tab_id, "button[class*='accept']")
+await client.click_element(tab_id, "#accept-cookies")
+```
+
+### 表单字段定位
+
+```python
+# 按占位符文本查找（推荐）
+await client.fill_input(tab_id, "input[placeholder*='Last']", "wang")
+await client.fill_input(tab_id, "input[placeholder*='email']", "user@example.com")
+
+# 按类型查找
+await client.fill_input(tab_id, "input[type='email']", "...")
+await client.fill_input(tab_id, "input[type='tel']", "...")
+await client.fill_input(tab_id, "input[type='text']", "...")
+```
+
+### Select 下拉框注意事项
+
+**`send_keys` 对 select 元素效果有限**，可能无法正确选择选项。替代方案：
+
+```python
+# 方案 1：等待页面加载后，select 可能已有正确默认值
+# 方案 2：点击 select 展开选项，再用其他方式选择
+await client.click_element(tab_id, "select")
+await asyncio.sleep(1)
+# 部分网站支持直接输入选项文本
+await client.send_keys(tab_id, "select", "China")
+```
+
+### 检查元素状态
+
+```python
+# 获取元素信息（判断是否可见、可操作）
+info = await client.get_element_info(tab_id, "input[type='email']")
+if 'error' not in info and info.get('visible'):
+    # 元素存在且可见，可以操作
+    await client.fill_input(tab_id, "input[type='email']", value)
+```
+
+---
+
 ## ⚠️ 注意事项
+
+### Service Worker API 陷阱
+
+**Chrome Extension Service Worker 中必须使用 Promise 版本的 API：**
+
+```javascript
+// ❌ 错误：callback 版本在 Service Worker 中无响应
+chrome.tabs.get(tabId, (tab) => { ... });
+
+// ✅ 正确：Promise 版本
+const tab = await chrome.tabs.get(tabId);
+```
+
+**原因**：Service Worker 的执行环境不同，callback 版本的 Chrome API 可能无法正常触发回调，导致请求超时。
+
+**受影响的 API**：
+- `chrome.tabs.get()` → 用 `await chrome.tabs.get(id)`
+- `chrome.tabs.group()` → 用 `await chrome.tabs.group({...})`
+- `chrome.tabGroups.get()` → 用 `await chrome.tabGroups.get(id)`
+- `chrome.tabGroups.query()` → 用 `await chrome.tabGroups.query({...})`
+
+**Promise 队列问题**：
+
+```javascript
+// ❌ 在 Service Worker 中可能导致死锁
+const done = groupQueue.then(() => doWork());
+groupQueue = done.catch(() => {});
+
+// ✅ 直接执行更可靠
+return await doWork();
+```
+
+### 复杂 JavaScript 交互 UI 局限性
+
+**部分网站的选择机制依赖复杂 JS 动态交互，web-fetcher 无法自动化：**
+
+| 特征 | 示例 | 原因 |
+|------|------|------|
+| 无标准表单元素（radio/checkbox） | VietJet 代金券选择 | 选择状态不在 DOM 中体现 |
+| hidden input 存储非产品值 | hidden input 值为 "event" | 无法通过修改 DOM 改变选择 |
+| 选择状态依赖 JavaScript 状态管理 | React/Vue 状态驱动 UI | DOM 操作不触发状态更新 |
+
+**解决方案**：此类 UI 需完整浏览器自动化工具（Playwright/Selenium/Puppeteer），而非 DOM 操作。
+
+**VietJet 案例**（2026-04-20）：
+- 页面显示 4 个代金券选项（500/1000/2000/5000 THB）
+- 尝试方法：点击 nth-of-type divs、JS 注入修改 hidden input、URL 参数、text input 填值
+- 结果：所有方法无效，checkout 始终默认 500 THB
+- 结论：VietJet 代金券选择无法用 web-fetcher 自动化
 
 ### chrome:// 页面限制
 
@@ -243,4 +425,4 @@ for page in range(1, total_pages + 1):
 
 ---
 
-*Last updated: 2026-04-11 by Luna*
+*Last updated: 2026-04-20 by Luna (added JS interaction UI limitation)*

@@ -1,9 +1,15 @@
 ---
 name: zhihu-collection-scraper
-description: 知乎收藏夹增量抓取技能 - 使用 OpenCLI 定期抓取收藏夹新增文章，保存到 Obsidian 知识库
-tags: [zhihu, collection, scraper, opencli, obsidian, knowledge-base, cron]
+status: deprecated
+deprecated_date: 2026-04-15
+redirect_to: zhihu-favorites-sync
+reason: "已改名并升级，输出路径改为 raw/zhihu/"
+description: |
+  [已废弃] 请使用 zhihu-favorites-sync
+  输出路径已从 tmp/ 改为 raw/，方便 wiki-ingest 自动整理
+tags: [zhihu, collection, scraper, deprecated]
 version: 1.0.0
-updated: 2026-04-14
+updated: 2026-04-15
 ---
 
 # 知乎收藏夹增量抓取技能

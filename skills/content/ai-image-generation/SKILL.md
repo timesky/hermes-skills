@@ -2,8 +2,8 @@
 name: ai-image-generation
 description: AI图片生成技能 - 支持多平台API（GrsAI/Nano Banana/DALL-E等），统一接口调用，用于MCN配图生成
 tags: [ai, image, generation, grsai, dall-e, nano-banana, mcn]
-version: 2.1.0
-updated: 2026-04-14
+version: 2.2.0
+updated: 2026-04-17
 ---
 
 # AI 图片生成技能
@@ -319,14 +319,18 @@ def download_image(image_url: str, save_path: str) -> bool:
 
 ### generate_article_images()
 
-批量生成文章配图：
+批量生成文章配图。
+
+**规则**：每篇 3 张（首图 + 2 张段落图）
+
+**流程**：先排版 → 确定段落图位置 → 根据段落内容摘要生成配图
 
 ```python
 def generate_article_images(
     topic: str,
-    keywords: list,
-    count: int = 4,
-    domain: str = "科技",
+    article_path: str,  # 必须提供，用于段落差异化
+    count: int = 3,  # 固定3张：cover + img_1 + img_2
+    provider: str = "doubao",  # 默认豆包（支持中文）
     save_dir: str = "/tmp/article_images"
 ) -> list:
     """
@@ -334,13 +338,18 @@ def generate_article_images(
     
     Args:
         topic: 文章主题（用于文件命名）
-        keywords: 关键词列表（生成不同角度图片）
-        count: 图片数量
-        domain: 领域（科技/航天/职场/AI）
+        article_path: 文章路径（必须提供，用于段落差异化）
+        count: 图片数量（默认3张）
+        provider: 提供商（doubao/grsai）
         save_dir: 保存目录
     
     Returns:
-        图片列表 [{url, path, keyword}]
+        图片列表 [{url, path, name, paragraph}]
+    
+    分配：
+        cover（首图）：主题概念，900x500px
+        img_1：前半部分段落内容
+        img_2：后半部分段落内容
     """
     
     import os
@@ -533,26 +542,223 @@ if len(images) < 3:
 
 ---
 
+## ⭐ 配图提示词设计（重要！）
+
+**问题**：只用主题标题+通用模板会导致配图雷同，缺乏差异化
+
+**解决方案**：根据文章段落内容定制提示词
+
+```python
+def generate_contextual_prompts(article_paragraphs: list, topic: str) -> list:
+    """
+    根据文章段落生成差异化提示词
+    
+    Args:
+        article_paragraphs: 段落摘要列表（如 ["微软OpenAI合作变化", "会计争议", "算力之争"]）
+        topic: 整体主题
+    
+    Returns:
+        提示词列表（封面+内容图）
+    """
+    
+    # 封面图：整体主题，强调对比和冲突
+    cover_prompt = f"{topic} concept art, professional digital illustration, dramatic lighting, contrasting elements, modern tech style"
+    
+    # 内容图：根据每个段落定制
+    paragraph_prompts = {
+        "合作变化": "business partnership evolving, handshake fading, tech companies strategic alliance, corporate relationship tension",
+        "财务争议": "financial data controversy infographic, accounting numbers disputed, charts and graphs, modern business illustration",
+        "算力之争": "AI computing power competition, GPU data centers, server farm infrastructure, technology hardware",
+        "理念之争": "AI philosophy debate, two visions concept, technology ethics, contrasting ideologies",
+        "竞争态势": "market competition battle, corporate rivals, business warfare, strategic positioning"
+    }
+    
+    prompts = [{'name': 'cover', 'prompt': cover_prompt}]
+    
+    for i, para in enumerate(article_paragraphs[:3]):
+        # 根据段落关键词匹配模板
+        matched = False
+        for key, template in paragraph_prompts.items():
+            if key in para:
+                prompts.append({'name': f'img_{i+1}', 'prompt': template})
+                matched = True
+                break
+        
+        if not matched:
+            # 默认模板
+            prompts.append({'name': f'img_{i+1}', 'prompt': f"{para}, professional illustration, modern design, tech atmosphere"})
+    
+    return prompts
+```
+
+**示例**：
+```python
+# 主题：OpenAI内部信泄露：手撕Anthropic数据造假
+paragraphs = ["微软和OpenAI的塑料兄弟情", "手撕Anthropic会计方式", "算力之争", "理念之争"]
+
+prompts = generate_contextual_prompts(paragraphs, "OpenAI versus Anthropic rivalry")
+
+# 结果：
+# cover: "OpenAI versus Anthropic rivalry concept art..."
+# img_1: "business partnership evolving..."
+# img_2: "financial data controversy infographic..."
+# img_3: "AI computing power competition..."
+```
+
+---
+
 ## Pitfalls
 
 1. **⚠️ GrsAI积分消耗**：实际是440积分/张，不是22积分！
 2. **API调用方式**：使用 `webHook="-1"` + 轮询 result，不要直接等待流式响应
-3. **⚠️ SSL超时问题**：execute_code 中 urllib.request 经常 SSL handshake 超时，推荐用 terminal + curl
+3. **⚠️ SSL超时问题**：execute_code 中 urllib.request 经常 SSL handshake 趨时，推荐用 terminal + curl
 4. **API地址**：国内直连 `https://grsai.dakka.com.cn`，海外 `https://grsaiapi.com`
 5. **生成耗时**：30-50秒，轮询最多60次（每次间隔2秒）
 6. **下载稳定性**：使用requests而非urllib
 7. **图片URL有效期**：可能有限期，建议及时下载保存
 8. **⚠️ 配图数量验证**：生成后必须验证数量≥3张，不足则重试或补充
 9. **命名规范**：使用 img_1, img_2, img_3... 连续命名，跳过索引说明失败
+10. **⚠️ 配图提示词差异化**：必须根据文章段落内容定制提示词，不能只用主题标题+通用模板（会导致图片雷同）
+11. **⚠️ API响应结构**：图片URL在 `data['results'][0]['url']`，不是 `imageUrl` 或 `url` 字段
+12. **⚠️ GrsAI 中文乱码**：Nano Banana 不支持中文提示词，图片中的文字会是乱码！必须使用英文提示词，或接入豆包生图 API
+13. **⚠️ task_id 复用**：一旦获得 task_id，就不要重新提交任务，直接轮询等待结果。重复提交会消耗额外积分
+14. **⚠️ 内容审核失败**：`output_moderation` 表示提示词触发审核，需要修改提示词（避免敏感词，改用纯英文描述）
+15. **⚠️ 封面图尺寸**：公众号封面要求 900×500px，需要用 PIL 调整：`img.resize((900, 500), Image.LANCZOS)`
+
+---
+
+## ⭐ 豆包生图 API（推荐用于中文场景）
+
+**问题**：GrsAI/Nano Banana 不支持中文提示词，图片中的文字是乱码
+
+**解决方案**：接入豆包（字节跳动）生图 API，支持中文提示词
+
+### 基本信息
+
+| 项目 | 内容 |
+|------|------|
+| 提供商 | 字节跳动 / 火山引擎方舟平台 |
+| API Endpoint | `https://ark.cn-beijing.volces.com/api/v3/images/generations` |
+| 模型 ID | `doubao-seedream-4-0-250828` 或 `doubao-seedream-5-0-lite` |
+| 平台地址 | https://ark.cn-beijing.volces.com/ |
+| 免费额度 | 每个模型 **200张** |
+
+### 关键优势
+
+1. **✅ 支持中文提示词** - 这是最大优势，可以直接用中文描述，文字渲染正确
+2. **图片质量稳定** - 字节跳动的图像生成技术成熟
+3. **调用简单** - 类似 OpenAI 格式，同步响应
+4. **免费额度** - 每个模型 200 张免费额度
+
+### API 调用示例
+
+```python
+import requests
+
+API_URL = "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+API_KEY = "your_api_key"
+MODEL_ID = "doubao-seedream-4-0-250828"
+
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": f"Bearer {API_KEY}"
+}
+
+payload = {
+    "model": MODEL_ID,
+    "prompt": "雨后彩虹，一群鸟儿飞过，高质量插画",  # 支持中文！
+    "size": "1024x1024",
+    "response_format": "url",
+    "stream": False,
+    "watermark": False
+}
+
+resp = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+result = resp.json()
+
+# 图片 URL 在 result['data'][0]['url']
+image_url = result['data'][0]['url']
+```
+
+### 脚本调用
+
+```bash
+# 单张图片
+python ~/.hermes/skills/content/ai-image-generation/scripts/doubao-image-gen.py \
+    --prompt "科技概念插画，蓝色调，现代设计" \
+    --output ./test.png
+
+# 批量生成（配合 MCN）
+python ~/.hermes/skills/content/ai-image-generation/scripts/doubao-image-gen.py \
+    --topic "华为折叠屏" \
+    --count 4 \
+    --date 2026-04-19 \
+    --article ./article.md
+```
+
+### 配置添加（mcn_config.yaml）
+
+```yaml
+image_generation:
+  default_provider: doubao  # 改为豆包
+  
+  providers:
+    doubao:
+      name: 豆包生图
+      api_url: https://ark.cn-beijing.volces.com/api/v3/images/generations
+      api_key: YOUR_VOLCES_API_KEY  # 需要申请
+      models:
+        seedream-4.0: doubao-seedream-4-0-250828
+        seedream-5.0-lite: doubao-seedream-5-0-lite
+      default_model: seedream-4.0
+      timeout: 60
+      response_format: sync
+      advantage: 中文提示词支持
+    
+    # 保留 grsai 作为备用（英文场景）
+    grsai:
+      name: GrsAI Nano Banana
+      api_url: https://grsai.dakka.com.cn/v1/draw/nano-banana
+      api_key: sk-xxx
+      models:
+        fast: nano-banana-fast
+      timeout: 120
+      response_format: stream
+      cost_per_image: 440
+```
+
+### 申请步骤
+
+1. **注册火山引擎账号**：https://www.volcengine.com
+2. **实名认证**（需要身份证）
+3. **开通方舟平台**：https://ark.cn-beijing.volces.com/
+4. **开通文生图模型**：在模型广场找到 `Doubao-Seedream-4.0` 或 `5.0-lite`
+5. **创建 API Key**：左侧菜单 → API Key 管理 → 创建 → 复制
+
+### 对比
+
+| 特性 | GrsAI/Nano Banana | 豆包生图 |
+|------|-------------------|----------|
+| 中文提示词 | ❌ 不支持（乱码） | ✅ 支持 |
+| 图片质量 | 一般 | 较好 |
+| 免费额度 | 无明确额度 | 每模型200张 |
+| API 稳定性 | 轮询慢（30-50秒） | 同步快（~10秒） |
+| 文字渲染 | ❌ 乱码 | ✅ 正确 |
+| 调用方式 | webHook轮询 | 直接POST |
+
+### 推荐
+
+- **中文场景** → 豆包（公众号文章配图）
+- **英文场景** → GrsAI（英文提示词时）
 
 ---
 
 ## 相关技能
 
-- `mcn-content-rewriter`: 内容改写（调用本技能生成配图）
+- `mcn-content-writer`: 内容生成（调用本技能生成配图）
 - `mcn-wechat-publisher`: 公众号发布（上传图片到素材库）
-- `mcn-hotspot-aggregator`: 热点调研（选题来源）
+- `mcn-hotspot-research`: 热点调研（选题来源）
 
 ---
 
-*Updated: 2026-04-14 by Luna*
+*Updated: 2026-04-17 by Luna*

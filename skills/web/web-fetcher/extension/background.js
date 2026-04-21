@@ -5,6 +5,8 @@
  * - 3-state model: DISABLED / DISCONNECTED / CONNECTED
  * - State persistence via chrome.storage.local
  * - Toggle control in popup
+ * 
+ * v2.1: Added Agent Tab Group (separate from user tabs)
  */
 
 // ========== Constants (State Model) ==========
@@ -17,10 +19,187 @@ const RelayState = {
 
 const SERVER_URL = 'ws://localhost:9234';
 
+// ========== Agent Tab Group Manager ==========
+
+const TAB_GROUP_TITLE = 'Hermes Agent';
+const TAB_GROUP_COLOR = 'purple';
+
+let agentGroupId = null;
+let agentTabs = new Set();  // Tab IDs created by Hermes
+let groupQueue = Promise.resolve();  // Serialization queue
+
+async function getOrCreateGroup() {
+  // Try to find existing group
+  if (agentGroupId !== null) {
+    try {
+      await chrome.tabGroups.get(agentGroupId);
+      return agentGroupId;
+    } catch {
+      agentGroupId = null;
+    }
+  }
+  
+  // Try to recover existing group by title
+  try {
+    const groups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE });
+    if (groups.length > 0) {
+      agentGroupId = groups[0].id;
+      console.log('[Hermes] Recovered existing group:', agentGroupId);
+      return agentGroupId;
+    }
+  } catch {}
+  
+  // Create new group (will be created when first tab is added)
+  return null;
+}
+
+async function addToAgentGroup(tabId) {
+  // Direct execution (no queue - simpler for Service Worker)
+  return await _doAddToGroup(tabId);
+}
+
+async function _doAddToGroup(tabId) {
+  try {
+    agentTabs.add(tabId);
+    
+    // Get or create group
+    let gid = await getOrCreateGroup();
+    
+    // Add tab to group
+    const newGroupId = await chrome.tabs.group({
+      tabIds: [tabId],
+      ...(gid !== null ? { groupId: gid } : {})
+    });
+    
+    if (gid === null || newGroupId !== gid) {
+      agentGroupId = newGroupId;
+      await chrome.tabGroups.update(newGroupId, {
+        title: TAB_GROUP_TITLE,
+        color: TAB_GROUP_COLOR,
+        collapsed: false
+      });
+      console.log('[Hermes] Created/updated agent group:', agentGroupId);
+    }
+    
+    return { groupId: agentGroupId, tabId };
+  } catch (err) {
+    console.warn('[Hermes] addToAgentGroup failed:', err);
+    return null;
+  }
+}
+
+async function createAgentTab(url) {
+  try {
+    // Create new tab
+    const tab = await chrome.tabs.create({ url, active: false });
+    console.log('[Hermes] Created agent tab:', tab.id, url);
+    
+    // Add to agent group
+    await addToAgentGroup(tab.id);
+    
+    // Wait for load (use Promise-based API)
+    const waitForLoad = () => {
+      return new Promise((resolve) => {
+        const check = async () => {
+          try {
+            const t = await chrome.tabs.get(tab.id);
+            if (t.status === 'complete') {
+              resolve(t);
+            } else {
+              setTimeout(check, 500);
+            }
+          } catch (err) {
+            console.warn('[Hermes] Tab check error:', err);
+            resolve({ error: err.message });
+          }
+        };
+        setTimeout(check, 500);  // Start checking after 500ms
+      });
+    };
+    
+    const loadedTab = await waitForLoad();
+    if (loadedTab.error) {
+      return { error: loadedTab.error };
+    }
+    
+    // Wait 1 more second for JS to execute
+    await new Promise(r => setTimeout(r, 1000));
+    
+    const finalTab = await chrome.tabs.get(tab.id);
+    return { id: finalTab.id, title: finalTab.title, url: finalTab.url };
+  } catch (err) {
+    console.error('[Hermes] createAgentTab failed:', err);
+    return { error: err.message };
+  }
+}
+
+async function closeAgentTab(tabId) {
+  try {
+    agentTabs.delete(tabId);
+    await chrome.tabs.remove(tabId);
+    console.log('[Hermes] Closed agent tab:', tabId);
+    return { success: true };
+  } catch (err) {
+    console.warn('[Hermes] closeAgentTab failed:', err);
+    return { error: err.message };
+  }
+}
+
+async function dissolveAgentGroup() {
+  let gid = agentGroupId;
+  agentGroupId = null;
+  
+  if (gid === null) {
+    try {
+      const groups = await chrome.tabGroups.query({ title: TAB_GROUP_TITLE });
+      if (groups.length > 0) gid = groups[0].id;
+    } catch {}
+  }
+  
+  if (gid === null) {
+    console.log('[Hermes] No agent group to dissolve');
+    return { success: true, closed: 0 };
+  }
+  
+  try {
+    const tabs = await chrome.tabs.query({ groupId: gid });
+    const tabIds = tabs.map(t => t.id).filter(id => id != null);
+    
+    // Close agent-created tabs
+    const toClose = tabIds.filter(id => agentTabs.has(id));
+    if (toClose.length > 0) {
+      await chrome.tabs.remove(toClose);
+      console.log('[Hermes] Closed', toClose.length, 'agent tabs');
+    }
+    
+    // Ungroup user tabs (if any were added)
+    const toUngroup = tabIds.filter(id => !agentTabs.has(id));
+    if (toUngroup.length > 0) {
+      await chrome.tabs.ungroup(toUngroup);
+      console.log('[Hermes] Ungrouped', toUngroup.length, 'user tabs');
+    }
+    
+    agentTabs.clear();
+    return { success: true, closed: toClose.length, ungrouped: toUngroup.length };
+  } catch (err) {
+    console.warn('[Hermes] dissolveAgentGroup failed:', err);
+    return { error: err.message };
+  }
+}
+
+async function listAgentTabs() {
+  return {
+    groupId: agentGroupId,
+    tabs: [...agentTabs],
+    count: agentTabs.size
+  };
+}
+
 // ========== State Variables ==========
 
 let ws = null;
 let relayEnabled = false;      // User preference (persisted)
+let autoConnectEnabled = false; // Auto reconnect every 10s (persisted)
 let currentRelayState = RelayState.DISABLED;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -28,15 +207,21 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 // ========== Initialization ==========
 
 async function initFromStorage() {
-  const result = await chrome.storage.local.get(['relayEnabled', '_relayState']);
+  const result = await chrome.storage.local.get(['relayEnabled', 'autoConnectEnabled', '_relayState']);
   
   relayEnabled = result.relayEnabled ?? false;
+  autoConnectEnabled = result.autoConnectEnabled ?? false;
   currentRelayState = relayEnabled ? RelayState.DISCONNECTED : RelayState.DISABLED;
   
-  console.log('[Hermes] Init from storage:', { relayEnabled, currentRelayState });
+  console.log('[Hermes] Init from storage:', { relayEnabled, autoConnectEnabled, currentRelayState });
   
   // Update internal state storage (for popup to read)
   await chrome.storage.local.set({ _relayState: currentRelayState });
+  
+  // Create autoConnect alarm if enabled
+  if (autoConnectEnabled) {
+    chrome.alarms.create('hermesAutoConnect', { periodInMinutes: 1/6 }); // Every 10 seconds
+  }
   
   if (relayEnabled) {
     connectToServer();
@@ -189,8 +374,66 @@ async function handleCommand(method, params) {
       return handleGetActiveTab();
     case 'Hermes.navigate':
       return handleNavigate(params.tabId, params.url);
+    // ========== Control Commands (v2.0) ==========
+    case 'Hermes.fillInput':
+      return handleFillInput(params.tabId, params.selector, params.value, params.options);
+    case 'Hermes.clickElement':
+      return handleClickElement(params.tabId, params.selector, params.options);
+    case 'Hermes.sendKeys':
+      return handleSendKeys(params.tabId, params.selector, params.text);
+    case 'Hermes.waitFor':
+      return handleWaitFor(params.tabId, params.selector, params.timeout);
+    case 'Hermes.callApi':
+      return handleCallApi(params.tabId, params.url, params.method, params.data);
+    case 'Hermes.getElementInfo':
+      return handleGetElementInfo(params.tabId, params.selector);
+    case 'Hermes.blur':
+      return handleBlur(params.tabId, params.selector);
+    // ========== Agent Tab Group Commands (v2.1) ==========
+    case 'Hermes.createAgentTab':
+      return createAgentTab(params.url);
+    case 'Hermes.addToAgentGroup':
+      return addToAgentGroup(params.tabId);
+    case 'Hermes.closeAgentTab':
+      return closeAgentTab(params.tabId);
+    case 'Hermes.dissolveAgentGroup':
+      return dissolveAgentGroup();
+    case 'Hermes.listAgentTabs':
+      return listAgentTabs();
+    // ========== Screenshot Command (v2.2) ==========
+    case 'Hermes.screenshot':
+      return handleScreenshot(params.tabId, params.options);
     default:
       return { error: `Unknown method: ${method}` };
+  }
+}
+
+// ========== Screenshot Handler (v2.2) ==========
+
+async function handleScreenshot(tabId, options = {}) {
+  const { format = 'png', quality = 90, savePath = null } = options;
+  
+  try {
+    // 使用 chrome.tabs.captureVisibleTab 截取可见区域
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+      format: format === 'jpeg' ? 'jpeg' : 'png',
+      quality: quality
+    });
+    
+    console.log('[Hermes] Screenshot captured, size:', dataUrl.length);
+    
+    return {
+      success: true,
+      dataUrl: dataUrl,
+      format: format,
+      message: 'Screenshot captured successfully'
+    };
+  } catch (err) {
+    console.error('[Hermes] Screenshot failed:', err);
+    return {
+      error: err.message || 'Screenshot failed',
+      success: false
+    };
   }
 }
 
@@ -481,8 +724,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       relayEnabled,
       relayState: currentRelayState,
       connected: ws && ws.readyState === WebSocket.OPEN,
-      reconnectAttempts
+      reconnectAttempts,
+      autoConnectEnabled
     });
+    return true;
+  }
+  
+  // Toggle auto connect (from popup)
+  if (msg.type === 'toggleAutoConnect') {
+    autoConnectEnabled = msg.enabled;
+    chrome.storage.local.set({ autoConnectEnabled });
+    
+    if (autoConnectEnabled) {
+      // Create auto connect alarm (every 10 seconds)
+      chrome.alarms.create('hermesAutoConnect', { periodInMinutes: 1/6 });
+      console.log('[Hermes] Auto connect enabled, alarm created');
+    } else {
+      // Clear alarm
+      chrome.alarms.clear('hermesAutoConnect');
+      console.log('[Hermes] Auto connect disabled, alarm cleared');
+    }
+    
+    sendResponse({ autoConnectEnabled });
     return true;
   }
   
@@ -546,15 +809,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ========== Storage Change Listener ==========
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && 'relayEnabled' in changes) {
-    relayEnabled = changes.relayEnabled.newValue;
-    console.log('[Hermes] relayEnabled changed to:', relayEnabled);
+  if (area === 'local') {
+    if ('relayEnabled' in changes) {
+      relayEnabled = changes.relayEnabled.newValue;
+      console.log('[Hermes] relayEnabled changed to:', relayEnabled);
+      
+      if (relayEnabled) {
+        reconnectAttempts = 0;
+        connectToServer();
+      } else {
+        disconnectFromServer();
+      }
+    }
     
-    if (relayEnabled) {
-      reconnectAttempts = 0;
-      connectToServer();
-    } else {
-      disconnectFromServer();
+    if ('autoConnectEnabled' in changes) {
+      autoConnectEnabled = changes.autoConnectEnabled.newValue;
+      console.log('[Hermes] autoConnectEnabled changed to:', autoConnectEnabled);
     }
   }
 });
@@ -573,7 +843,353 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       }
     }
   }
+  
+  // Auto connect alarm (every 10 seconds)
+  if (alarm.name === 'hermesAutoConnect') {
+    if (!relayEnabled) {
+      // relay 未启用 → 自动启用并连接
+      console.log('[Hermes] AutoConnect: enabling relay...');
+      relayEnabled = true;
+      chrome.storage.local.set({ relayEnabled });
+      reconnectAttempts = 0;
+      connectToServer();
+    } else if (!ws || ws.readyState !== WebSocket.OPEN) {
+      // relay 已启用但连接断开 → 自动重连
+      console.log('[Hermes] AutoConnect: attempting reconnect...');
+      reconnectAttempts = 0; // Reset attempts for auto connect
+      connectToServer();
+    } else {
+      // relay 已启用且已连接 → 本次跳过
+      console.log('[Hermes] AutoConnect: already connected, skip');
+    }
+  }
 });
+
+// ========== Control Command Handlers (v2.0) ==========
+// Inspired by Playwright's fill/click implementation for React/Draft.js editors
+
+/**
+ * Fill input/textarea/contenteditable (supports Draft.js, React, vanilla)
+ * Key: Simulate Playwright's fill() - focus, select all, input events
+ */
+async function handleFillInput(tabId, selector, value, options = {}) {
+  const { clearFirst = true, triggerReact = false } = options;
+  
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sel, val, opts) => {
+      const el = document.querySelector(sel);
+      if (!el) return { error: 'element not found', selector: sel };
+      
+      // Focus first
+      el.focus();
+      el.dispatchEvent(new FocusEvent('focus', { bubbles: true }));
+      
+      // Check if Draft.js or contenteditable
+      const isContentEditable = el.getAttribute('contenteditable') === 'true';
+      const isDraftEditor = el.closest('.DraftEditor-root, .public-DraftEditor-content');
+      
+      if (isContentEditable || isDraftEditor || opts.triggerReact) {
+        // Draft.js / React contenteditable handling
+        // 1. Select all existing content
+        const selection = window.getSelection();
+        const range = document.createRange();
+        
+        if (opts.clearFirst && el.textContent) {
+          range.selectNodeContents(el);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          
+          // Trigger delete event
+          el.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true, cancelable: true, inputType: 'deleteContent'
+          }));
+        }
+        
+        // 2. Insert new text
+        el.dispatchEvent(new InputEvent('beforeinput', {
+          bubbles: true, cancelable: true, inputType: 'insertText', data: val
+        }));
+        
+        // 3. Set content (different approaches for different frameworks)
+        if (isDraftEditor) {
+          // Draft.js: need to set on the inner node
+          const innerEl = el.querySelector('[data-contents="true"]') || el;
+          innerEl.textContent = val;
+        } else {
+          el.textContent = val;
+        }
+        
+        // 4. Trigger input event (critical for React state)
+        el.dispatchEvent(new InputEvent('input', {
+          bubbles: true, inputType: 'insertText', data: val
+        }));
+        
+        // 5. Move cursor to end
+        range.selectNodeContents(el);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        
+        // 6. Trigger change
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        
+      } else {
+        // Regular input/textarea
+        if (opts.clearFirst) {
+          el.value = '';
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        
+        // Use native value setter (React workaround)
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
+          'value'
+        )?.set;
+        
+        if (nativeSetter) {
+          nativeSetter.call(el, val);
+        } else {
+          el.value = val;
+        }
+        
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      
+      // Return result
+      const content = isContentEditable ? el.textContent : el.value;
+      return {
+        success: true,
+        selector: sel,
+        filledLength: val.length,
+        currentContent: content.slice(0, 50)
+      };
+    },
+    args: [selector, value, { clearFirst, triggerReact }]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
+
+/**
+ * Click element with proper event propagation
+ */
+async function handleClickElement(tabId, selector, options = {}) {
+  const { delay = 100, doubleClick = false } = options;
+  
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sel, opts) => {
+      const el = document.querySelector(sel);
+      if (!el) return { error: 'element not found', selector: sel };
+      
+      // Scroll into view
+      el.scrollIntoView({ behavior: 'instant', block: 'center' });
+      
+      // Click
+      el.click();
+      el.dispatchEvent(new MouseEvent('click', {
+        bubbles: true, cancelable: true, view: window
+      }));
+      
+      if (opts.doubleClick) {
+        el.dispatchEvent(new MouseEvent('dblclick', {
+          bubbles: true, cancelable: true, view: window
+        }));
+      }
+      
+      return { success: true, selector: sel };
+    },
+    args: [selector, { delay, doubleClick }]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
+
+/**
+ * Send keys to element (simulate typing)
+ */
+async function handleSendKeys(tabId, selector, text) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sel, txt) => {
+      const el = document.querySelector(sel);
+      if (!el) return { error: 'element not found', selector: sel };
+      
+      el.focus();
+      
+      // Simulate each character
+      for (const char of txt) {
+        el.dispatchEvent(new KeyboardEvent('keydown', {
+          key: char, bubbles: true
+        }));
+        el.dispatchEvent(new KeyboardEvent('keypress', {
+          key: char, bubbles: true
+        }));
+        el.dispatchEvent(new KeyboardEvent('keyup', {
+          key: char, bubbles: true
+        }));
+        
+        // Also trigger input event for each char
+        if (el.getAttribute('contenteditable') === 'true') {
+          el.dispatchEvent(new InputEvent('input', {
+            bubbles: true, inputType: 'insertText', data: char
+          }));
+        } else {
+          el.value += char;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+      
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      
+      return { success: true, selector: sel, typed: txt.length };
+    },
+    args: [selector, text]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
+
+/**
+ * Wait for element to appear
+ */
+async function handleWaitFor(tabId, selector, timeout = 5000) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (sel, timeoutMs) => {
+      const startTime = Date.now();
+      
+      while (Date.now() - startTime < timeoutMs) {
+        const el = document.querySelector(sel);
+        if (el) {
+          // Wait for visible
+          const style = getComputedStyle(el);
+          if (style.display !== 'none' && style.visibility !== 'hidden') {
+            return { success: true, selector: sel, found: true };
+          }
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+      
+      return { error: 'timeout', selector: sel, timeout: timeoutMs };
+    },
+    args: [selector, timeout]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
+
+/**
+ * Call API from within the page (using page's cookies)
+ */
+async function handleCallApi(tabId, url, method = 'GET', data = null) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (apiUrl, apiMethod, apiData) => {
+      // Get xsrf_token from cookie (for Zhihu and similar sites)
+      const getXsrf = () => {
+        const cookies = document.cookie.split(';');
+        for (const c of cookies) {
+          const trimmed = c.trim();
+          if (trimmed.startsWith('xsrf_token=')) return trimmed.substring(11);
+          if (trimmed.startsWith('_xsrf=')) return trimmed.substring(6);
+          if (trimmed.startsWith('XSRF-TOKEN=')) return trimmed.substring(11);
+        }
+        return '';
+      };
+      
+      const xsrf = getXsrf();
+      
+      const options = {
+        method: apiMethod,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      };
+      
+      // Add xsrf header for POST/PUT
+      if (xsrf && ['POST', 'PUT', 'PATCH'].includes(apiMethod)) {
+        options.headers['x-xsrftoken'] = xsrf;
+        options.headers['x-zse-83'] = '3_2.0';
+      }
+      
+      if (apiData && ['POST', 'PUT', 'PATCH'].includes(apiMethod)) {
+        options.body = JSON.stringify(apiData);
+      }
+      
+      try {
+        const response = await fetch(apiUrl, options);
+        const result = await response.json();
+        return {
+          success: response.ok,
+          status: response.status,
+          data: result
+        };
+      } catch (err) {
+        return { error: err.message };
+      }
+    },
+    args: [url, method, data]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
+
+/**
+ * Get element info (text, attributes, state)
+ */
+async function handleGetElementInfo(tabId, selector) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return { error: 'element not found', selector: sel };
+      
+      const isEditable = el.getAttribute('contenteditable') === 'true';
+      const content = isEditable ? el.textContent : el.value || '';
+      
+      return {
+        success: true,
+        selector: sel,
+        tagName: el.tagName,
+        type: el.type || null,
+        contentEditable: isEditable,
+        value: content.slice(0, 200),
+        valueLength: content.length,
+        placeholder: el.placeholder || null,
+        disabled: el.disabled,
+        visible: getComputedStyle(el).display !== 'none'
+      };
+    },
+    args: [selector]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
+
+/**
+ * Blur element (trigger save in auto-save editors)
+ */
+async function handleBlur(tabId, selector) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (sel) => {
+      const el = document.querySelector(sel);
+      if (!el) return { error: 'element not found', selector: sel };
+      
+      el.blur();
+      el.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+      
+      return { success: true, selector: sel };
+    },
+    args: [selector]
+  });
+  
+  return results[0]?.result || { error: 'No result' };
+}
 
 // ========== Initialize on Install/Startup ==========
 

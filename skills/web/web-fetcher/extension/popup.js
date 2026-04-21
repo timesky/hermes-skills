@@ -12,12 +12,17 @@ const relayToggle = document.getElementById('relayToggle');
 const relayStatusBadge = document.getElementById('relayStatusBadge');
 const relayToggleText = document.getElementById('relayToggleText');
 const serverInfoEl = document.getElementById('serverInfo');
+const autoConnectToggle = document.getElementById('autoConnectToggle');
+const autoConnectText = document.getElementById('autoConnectText');
 
 // ========== Relay Control ==========
 
 async function initRelayControl() {
   const status = await getRelayStatus();
   updateRelayUI(status);
+  if (autoConnectToggle) {
+    updateAutoConnectUI(status.autoConnectEnabled);
+  }
 }
 
 function updateRelayUI(status) {
@@ -42,6 +47,16 @@ function updateRelayUI(status) {
   }
 }
 
+function updateAutoConnectUI(enabled) {
+  if (!autoConnectToggle) return;
+  autoConnectToggle.checked = enabled;
+  if (autoConnectText) {
+    autoConnectText.textContent = enabled 
+      ? '自动连接 ✅ (每10秒)' 
+      : '自动连接 (每10秒)';
+  }
+}
+
 function getStatusLabel(state) {
   switch (state) {
     case 'connected': return '已连接';
@@ -54,7 +69,7 @@ function getStatusLabel(state) {
 async function getRelayStatus() {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage({ type: 'getRelayStatus' }, (response) => {
-      resolve(response || { relayEnabled: false, relayState: 'disabled', connected: false });
+      resolve(response || { relayEnabled: false, relayState: 'disabled', connected: false, autoConnectEnabled: false });
     });
   });
 }
@@ -74,6 +89,26 @@ relayToggle.addEventListener('change', async () => {
     setStatus('状态：已禁用 WebSocket 连接');
   }
 });
+
+// Auto Connect Toggle handler
+if (autoConnectToggle) {
+  autoConnectToggle.addEventListener('change', async () => {
+    const enabled = autoConnectToggle.checked;
+    
+    const response = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: 'toggleAutoConnect', enabled }, resolve);
+    });
+    
+    updateAutoConnectUI(response.autoConnectEnabled);
+    
+    // Show status message
+    if (response.autoConnectEnabled) {
+      setStatus('状态：已启用自动连接 (每10秒尝试)');
+    } else {
+      setStatus('状态：已禁用自动连接');
+    }
+  });
+}
 
 // Periodically update relay status (every 2 seconds)
 setInterval(async () => {

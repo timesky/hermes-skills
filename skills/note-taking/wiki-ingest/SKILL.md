@@ -61,8 +61,25 @@ inspired_by: Karpathy LLM Wiki
 | 自动保存 | web_search/web_extract 后 | 存入 tmp，包含指标 |
 | 定时整理 | 8-22点每2小时 | 评估总分，决定保留/删除 |
 | 移入 raw | 总分 >= 5 | shutil.move 到 raw/sources/ |
-| Ingest | 移入后触发 | 创建 wiki 页面，更新索引 |
+| 知乎同步 | 定时 Cron | 抓取收藏夹 → raw/sources/zhihu/{日期}/ |
+| Ingest | 移入后触发 | 扫描 raw/sources/**/*.md，创建 wiki 页面 |
 | 删除记录 | 总分 < 3 或过期 | 追加到 wiki/delete.log |
+
+**扫描范围**：`raw/**/*.md`（包含所有子目录）
+
+| 子目录 | 来源 | 文件数 | 说明 |
+|--------|------|--------|------|
+| `raw/sources/{日期}/` | wiki-auto-save → curator | ~173 | 搜索内容整理 |
+| `raw/sources/zhihu/{日期}/` | zhihu-favorites-sync | — | 知乎收藏夹同步 |
+| `raw/sources/网络转载/` | 手动保存 | — | 外部文章 |
+| `raw/notes/AI工具/` | 手动笔记 | — | AI 工具研究 |
+| `raw/notes/量化/` | 手动笔记 | — | 量化交易笔记 |
+| `raw/notes/投资理财/` | 手动笔记 | — | 投资理财笔记 |
+| `raw/notes/微信/` | MCN 草稿 | — | 公众号相关 |
+| `raw/notes/博客/` | 手动笔记 | — | 博客草稿/发布 |
+| `raw/assets/` | — | 0 | 资源文件（不扫描） |
+
+**注意**：`raw/assets/` 不包含 md 文件，无需扫描。
 [一句话定义]
 
 ## 关键信息
@@ -106,6 +123,43 @@ sources: [原来源列表，新来源]  ← 追加新来源
 | 小米推出-MiMo-大模型订阅套餐.md | entities/xiaomi-mimo.md |
 | GLM-5 上下文窗口.md | entities/glm-5.md |
 | Hermes 配置.md | entities/glm-5.md (作为相关配置) |
+
+---
+
+## 输出文件与反查
+
+| 文件 | 用途 | 说明 |
+|------|------|------|
+| `wiki/processed.log` | 已处理记录 | 反查哪些 raw 文件已 wiki 化 |
+| `wiki/unprocessed.log` | 未处理记录 | 反查哪些 raw 文件尚未处理 |
+| `wiki/duplicates.md` | 重复内容建议 | 列出关联 wiki 页和 raw 文件，建议合并删除 |
+| `wiki/log.md` | 执行日志 | 每次 ingest 执行情况 |
+| `wiki/index.md` | Wiki 索引 | 所有 wiki 页面分类索引 |
+
+### 反查未处理内容
+
+```bash
+# 查看未处理列表
+cat wiki/unprocessed.log
+
+# 查看处理状态统计
+python3 scripts/wiki_ingest.py --status
+```
+
+### 重复内容处理
+
+`wiki/duplicates.md` 自动检测并记录：
+
+| 检测规则 | 说明 |
+|----------|------|
+| 关键词重叠 | 相同关键词在 3+ 文件中出现 |
+| 主题相似 | 相同主题在不同目录有多个文件 |
+| 文件名相似 | 去除日期后缀后文件名相同 |
+
+**处理建议**：
+- 合并：多篇相关文章 → 一个 Wiki 页面
+- 删除：明显过时/重复内容
+- 保留：内容完整、时间最新的版本
 
 ---
 
@@ -181,7 +235,7 @@ patch(path="wiki/index.md", old_string=old_count, new_count=new_count)
 4. **append-only 日志**：log.md 和 processed.log 只追加
 5. **保留原始内容**：增量更新时不删除已有内容
 6. **不要创建重复技能**：发现流程缺陷时，优先优化现有技能（如 wiki-ingest），而不是创建新技能（如 batch-ingest）
-7. **文件验证必须严格**：过滤 placeholder（<1KB）、缓存消息、无 frontmatter 的文件
+7. **处理所有类型文件**：不跳过无 frontmatter 或短文件，按类型分类处理
 
 ---
 
@@ -298,6 +352,48 @@ else:
 | 未处理文件 | 0 |
 | 空 wiki 页面 | 0 |
 | Wiki 页面内容 | ≥3 行实质内容 |
+
+---
+
+## 处理所有类型文件
+
+Wiki Ingest 处理 raw 目录下的**所有文件**，不跳过"无效"文件：
+
+| 文件类型 | 定义 | 处理策略 | 输出位置 |
+|----------|------|----------|----------|
+| **完整文章** | 有 frontmatter，正文 ≥ 200 字 | 直接创建 Wiki 页面 | `wiki/entities/` 或 `wiki/concepts/` |
+| **无frontmatter文章** | 无 frontmatter，正文 ≥ 200 字 | 自动生成 frontmatter，创建 Wiki 页面 | `wiki/entities/` |
+| **短笔记** | 正文 < 200 字但有 frontmatter | 合并到相关主题 Wiki 页面 | 作为补充内容 |
+| **碎片笔记** | 正文 < 100 字 | 记录到 `wiki/fragments.md` | 待人工整理或合并 |
+
+### 无frontmatter文章处理
+
+自动生成 frontmatter：
+
+```yaml
+---
+title: {从文件名或首行提取}
+created: {当前日期}
+source: raw/notes/xxx.md
+type: auto-generated
+tags: {从内容提取关键词}
+---
+```
+
+### 碎片笔记收集
+
+`wiki/fragments.md` 记录所有碎片笔记：
+
+```markdown
+# 碎片笔记收集
+
+记录未形成完整内容的碎片笔记，等待合并或扩展。
+
+| 来源 | 内容 | 字数 | 建议合并到 |
+|------|------|------|------------|
+| raw/notes/速记.md | 快速记录内容 | 29 | 待定 |
+| raw/notes/投资理财/龙头战法.md | 龙头战法要点 | 53 | wiki/concepts/龙头战法.md |
+```
 
 ---
 
