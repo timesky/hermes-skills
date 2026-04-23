@@ -43,13 +43,13 @@ def slugify(text: str) -> str:
 def generate_titles(topic: str) -> list:
     """生成 5 个候选标题"""
     
-    # 标题公式
+    # 标题公式（避免模板化）
     formulas = [
-        ("数字 + 结果 + 方法", f"3 个关键点，让你看懂{topic}"),
-        ("人群 + 痛点 + 方案", f"关注{topic}的人，都在思考什么？"),
-        ("对比 + 反差 + 原因", f"同样是{topic}，为什么观点差距这么大"),
-        ("悬念 + 揭秘 + 价值", f"揭秘：{topic}背后的真相"),
-        ("热点 + 观点 + 引发思考", f"{topic}：这个趋势你怎么看？"),
+        ("具体数据 + 结果", f"{topic}：数据揭示了什么"),
+        ("争议观点 + 反转", f"{topic}：事实和想象差距有多大"),
+        ("问题 + 深度分析", f"{topic}火了，但争议背后是什么"),
+        ("对比 + 引发思考", f"同样是讨论{topic}，为何观点天差地别"),
+        ("热点 + 个人看法", f"关于{topic}，我想说几句"),
     ]
     
     titles = []
@@ -81,12 +81,19 @@ def evaluate_title(title_info: dict, topic: str) -> dict:
         score -= 5
         reasons.append(f"略长({length}字)")
     
-    # 2. 吸引力关键词
-    attract_words = ['揭秘', '背后', '如何', '为什么', '方法', '真相', '关键', '核心', '看懂']
-    for word in attract_words:
+    # 2. 扣分模板词（避免AI痕迹）
+    template_words = ['揭秘', '关键点', '让你看懂', '真相', '核心', '方法', '步骤']
+    for word in template_words:
         if word in title:
-            score += 10
-            reasons.append(f"含吸引力词'{word}'")
+            score -= 15
+            reasons.append(f"含模板词'{word}'（扣分）")
+    
+    # 3. 加分个性化元素
+    unique_words = ['数据', '争议', '差距', '反转', '天差地别', '我想说', '看法']
+    for word in unique_words:
+        if word in title:
+            score += 15
+            reasons.append(f"含个性化词'{word}'（加分）")
     
     # 3. 数字元素
     if re.search(r'\d+', title):

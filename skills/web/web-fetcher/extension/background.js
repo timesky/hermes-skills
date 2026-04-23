@@ -403,6 +403,9 @@ async function handleCommand(method, params) {
     // ========== Screenshot Command (v2.2) ==========
     case 'Hermes.screenshot':
       return handleScreenshot(params.tabId, params.options);
+    // ========== Get HTML Command (v2.3) ==========
+    case 'Hermes.getHTML':
+      return handleGetHTML(params.tabId);
     default:
       return { error: `Unknown method: ${method}` };
   }
@@ -432,6 +435,34 @@ async function handleScreenshot(tabId, options = {}) {
     console.error('[Hermes] Screenshot failed:', err);
     return {
       error: err.message || 'Screenshot failed',
+      success: false
+    };
+  }
+}
+
+// ========== Get HTML Handler (v2.3) ==========
+
+async function handleGetHTML(tabId) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        return document.documentElement.outerHTML;
+      }
+    });
+    
+    const html = results[0]?.result || '';
+    console.log('[Hermes] HTML captured, size:', html.length);
+    
+    return {
+      success: true,
+      html: html,
+      message: 'HTML captured successfully'
+    };
+  } catch (err) {
+    console.error('[Hermes] Get HTML failed:', err);
+    return {
+      error: err.message || 'Get HTML failed',
       success: false
     };
   }

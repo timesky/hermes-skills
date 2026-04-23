@@ -17,6 +17,7 @@ import json
 import yaml
 import argparse
 import subprocess
+import requests
 from datetime import datetime
 
 # 配置
@@ -24,6 +25,66 @@ MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 # 目录约定（自包含，不依赖其他技能模块）
 KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
 MCN_ROOT = KB_ROOT + "/mcn"
+
+# ==================== LLM API 调用 ====================
+
+def call_llm_api(prompt: str) -> str:
+    """调用 GLM-5 API（阿里云 DashScope 编码专用）
+    
+    Args:
+        prompt: 提示词
+        
+    Returns:
+        str: LLM 生成的文本，失败返回 None
+    """
+    
+    config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    
+    llm_config = config.get('llm', {})
+    api_key = llm_config.get('api_key', '')
+    base_url = llm_config.get('base_url', 'https://coding.dashscope.aliyuncs.com/v1')
+    model = llm_config.get('model', 'glm-5')
+    
+    if not api_key or '...' in api_key:
+        print("⚠️ LLM API Key 未配置或已截断，使用占位内容")
+        return None
+    
+    # OpenAI 格式调用
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": llm_config.get('parameters', {}).get('temperature', 0.7),
+        "max_tokens": llm_config.get('parameters', {}).get('max_tokens', 3000)
+    }
+    
+    try:
+        print(f"  → 调用 {model} API...")
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=120  # 增加超时
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            content = result['choices'][0]['message']['content']
+            print(f"  ✓ LLM API 成功（返回 {len(content)} 字符）")
+            return content
+        else:
+            print(f"  ⚠️ LLM API 错误: {response.status_code}")
+            print(f"     {response.text[:200]}")
+            return None
+    except Exception as e:
+        print(f"  ⚠️ LLM API 异常: {e}")
+        return None
 
 # ==================== Workflow.json 锚点更新 ====================
 
@@ -120,21 +181,45 @@ def load_template_prompt(article_type: str) -> str:
         with open(TEMPLATE_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        # 提取模板部分
-        pattern = f'### {template_id}：{article_type}模板.*?(````markdown\\n.*?)\\n````'
+        # 提取模板部分（三个反引号）
+        pattern = f'### {template_id}：{article_type}模板.*?(```markdown\\n.*?)\\n```'
         match = re.search(pattern, content, re.DOTALL)
         
         if match:
-            return match.group(1).replace('````markdown', '').strip()
+            template = match.group(1).replace('```markdown', '').strip()
+            print(f"✓ 加载模板：{template_id}（{article_type}）")
+            return template
+        else:
+            print(f"⚠️ 模板匹配失败，使用增强默认模板")
     
-    # 默认模板
-    return """# 任务：文章改写
+    # 增强默认模板（更完整的提示词）
+    return """# 任务：热点评论文章生成
+
+## 输入参数
+- 话题：{topic}
+- 标题：{title}
 
 ## 改写要求
-1. 总字数：1500-2000字
-2. 开篇使用场景引入
-3. 避免AI痕迹，添加个人观点
-4. 结尾不喊口号，引发思考"""
+
+### 结构框架（5段式）
+1. **开篇引入**（150字）：用场景或反差切入，引发好奇
+2. **事件还原**（300字）：简述事件核心，不啰嗦
+3. **观点分析**（500字）：2-3个分析角度，有数据支撑
+4. **延伸思考**（400字）：关联行业/社会，升华价值
+5. **结尾互动**（150字）：提问引导，不喊口号
+
+### 去 AI 化要求
+- ❌ 禁止："作为...的证明"、"综上所述"、"值得注意的是"
+- ✅ 使用："说实话"、"我觉得"、"你想想"、"有意思的是"
+- ✅ 添加个人视角：程序员/从业者/观察者的真实感受
+- ✅ 句子节奏变化：长短句交替，避免全是陈述句
+
+### 字数要求
+- 总字数：1500-2000字
+- 开篇不超过150字，结尾不超过150字
+
+## 输出格式
+直接输出文章正文，无需标题"""
 
 def load_config():
     """加载配置"""
@@ -179,36 +264,49 @@ def generate_titles(topic: str, style: str = 'professional') -> list:
 风格：{style}
 
 使用不同的标题公式：
-1. 数字 + 结果 + 方法（如：3 个方法让存款翻倍）
-2. 人群 + 痛点 + 方案（如：30 岁没存款？这个计划适合你）
-3. 对比 + 反差 + 原因（如：同样工作 5 年，为什么他存款是你的 10 倍）
-4. 悬念 + 揭秘 + 价值（如：揭秘：配音演员的声音被谁偷走了）
-5. 热点 + 观点 + 引发思考（如：AI 风波：行业饭碗还稳吗）
+1. 具体数据 + 结果（如：华为芯片：数据揭示了什么）
+2. 争议观点 + 反转（如：华为芯片火了，但争议背后是什么）
+3. 问题 + 深度分析（如：华为芯片：事实和想象差距有多大）
+4. 对比 + 引发思考（如：同样是讨论华为芯片，为何观点天差地别）
+5. 热点 + 个人看法（如：关于华为芯片，我想说几句）
 
 要求：
 - 标题长度：15-25 字
 - 吸引点击但不夸张
-- 符合公众号风格
-- 避免：标题党、负面词汇、敏感词
+- 避免模板词：揭秘、关键点、让你看懂、真相、核心、方法、步骤
+- 使用个性化词：数据、争议、差距、反转、看法
 
-输出格式（JSON）：
+输出格式（JSON数组，不要包含其他内容）：
 [
-  {{"formula": "数字 + 结果 + 方法", "title": "..."}},
-  {{"formula": "人群 + 痛点 + 方案", "title": "..."}},
+  {{\"formula\": \"公式类型\", \"title\": \"标题内容\"}},
   ...
 ]
 """
-    
-    # 调用 LLM（这里用占位，实际应集成 Ollama 或其他 LLM）
+
+    # 调用 GLM-5 API
     print(f"生成标题：{topic}")
     
-    # 占位实现
+    result = call_llm_api(prompt)
+    
+    if result:
+        # 解析 JSON 结果
+        try:
+            # 尝试提取 JSON 部分
+            json_match = re.search(r'\[.*\]', result, re.DOTALL)
+            if json_match:
+                titles = json.loads(json_match.group())
+                print(f"✓ LLM 生成了 {len(titles)} 个标题")
+                return titles
+        except json.JSONDecodeError:
+            print("⚠️ LLM 返回格式错误，使用备用标题")
+    
+    # 备用标题（如果 LLM 失败）
     titles = [
-        {"formula": "数字 + 结果 + 方法", "title": f"3 个方法，让你理解{topic}"},
-        {"formula": "人群 + 痛点 + 方案", "title": f"关注{topic}的人都在看什么？"},
-        {"formula": "对比 + 反差 + 原因", "title": f"同样关注{topic}，为什么他更专业？"},
-        {"formula": "悬念 + 揭秘 + 价值", "title": f"揭秘：{topic}背后的真相"},
-        {"formula": "热点 + 观点 + 引发思考", "title": f"{topic}：我们该如何看待？"}
+        {"formula": "具体数据 + 结果", "title": f"{topic}：数据揭示了什么"},
+        {"formula": "争议观点 + 反转", "title": f"{topic}：事实和想象差距有多大"},
+        {"formula": "问题 + 深度分析", "title": f"{topic}火了，但争议背后是什么"},
+        {"formula": "对比 + 引发思考", "title": f"同样是讨论{topic}，为何观点天差地别"},
+        {"formula": "热点 + 个人看法", "title": f"关于{topic}，我想说几句"},
     ]
     
     return titles
@@ -286,7 +384,7 @@ def select_best_title(titles: list, topic: str) -> dict:
     }
 
 def generate_article_content(topic: str, title: str, style: str = 'professional') -> str:
-    """生成文章内容（使用模板系统）"""
+    """生成文章内容（使用 LLM API + 模板系统）"""
     
     # 1. 自动识别文章类型
     article_type = detect_article_type(topic)
@@ -306,10 +404,17 @@ def generate_article_content(topic: str, title: str, style: str = 'professional'
 请按照模板要求生成文章正文（1500-2000字）。
 """
     
-    # 调用 LLM（占位实现）
+    # 调用 GLM-5 API
     print(f"生成文章：{title}")
     print(f"使用模板类型：{article_type}")
     
+    result = call_llm_api(prompt)
+    
+    if result:
+        print(f"✓ LLM 生成了文章内容（约 {len(result)} 字符）")
+        return result
+    
+    # 备用内容（如果 LLM 失败）
     content = f"""# {title}
 
 ## 引言

@@ -249,13 +249,18 @@ source: 原文链接
 
 | 问题 | 解决方案 |
 |------|----------|
-| **run-content-gen.py 是占位实现** | 脚本第309-330行未真正调用 LLM API，只返回模板"详细内容待生成..."。**临时方案**：用 Hermes `delegate_task` 替代生成内容，或人工撰写。需修复：添加 Gateway API 调用 |
+| ~~run-content-gen.py 是占位实现~~ | ✅ **已修复**(2026-04-21)：脚本现已调用 DashScope API（glm-5）。注意：`coding.dashscope.aliyuncs.com` **只支持 glm-5**，不支持通义系列 |
+| **DashScope API 模型限制** | `coding.dashscope.aliyuncs.com` endpoint 只支持 `glm-5`，不支持 qwen-plus/qwen-turbo。如需用通义，需申请标准 DashScope API Key |
+| **f-string JSON 转义** | f-string 中 JSON 花括号需双写：`{{\"key\": \"value\"}}`，否则报 `Invalid format specifier` |
 | 字数不足 | 自动补充功能失效时，需人工补充到1500-2000字 |
 | 去 AI 化不彻底 | 检查 humanizer-zh 是否正确调用 |
 | 原文抓取失败 | **推荐 web-fetcher**（OpenCLI 有 Node undici 错误）。用法：`client.fetch_article(tab_id)` 返回 `{title, content}`。参见 web-fetcher 技能 |
 | **publish-draft 图片命名** | 必须使用特定格式：`cover.png`（封面）+ `img_1.png`, `img_2.png`（段落图）。脚本自动在20%、40%位置插入图片。文章内不需要 `![]` 图片引用，脚本处理图片插入 |
 | **配图提示词雷同** | generate-images.py 必须传 `--article` 参数，否则配图只用主题标题导致雷同。正确调用：`generate-images.py --topic "X" --article ARTICLE_PATH --date DATE --count 4` |
 | **publish-draft topic 参数** | `--topic` 参数必须使用 slugify 后的目录名（如 `特斯拉-Optimus-机器人最新进展曝光`），而非原始标题（含空格）。否则路径匹配失败，封面图找不到 |
+| **layout-article.py 覆盖标题** | 排版脚本会用 slug 名称生成模板标题（如「3个关键点，让你看懂ai-tutor-globalization」），覆盖原标题。**解决方案**：排版后手动用 sed 修改 HTML + patch 恢复 article.md 标题，或脚本需增加 `--skip-title-election` 参数 |
+| **generate-images.py 目录名** | 配图脚本用 `--topic` 参数值（中文主题名）创建目录，而非 slug。导致图片保存到 `AI导师全球化浪潮/images/` 而非 `ai-tutor-globalization/images/`。**解决方案**：生成后手动移动图片到正确目录 |
+| **参数命名不一致** | `humanize-article.py` 用 `--input`，其他脚本用 `--article`。调用时需注意区分 |
 | GrsAI 生成慢 | 每张图片需 2-5 分钟，4 张并发可能超时（轮询300s）。task_id 已记录，可用 `curl -X POST grsai/v1/draw/result -d '{"id":"TASK_ID"}'` 找回 |
 | OpenCLI Node 版本 | 必须用 Node v20（v22 有 undici 错误），执行前先 `nvm use 20` |
 

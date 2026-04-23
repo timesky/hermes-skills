@@ -158,15 +158,37 @@ async def main():
 
 ### 🆕 截屏方法 (v2.2)
 
-|| 方法 | 参数 | 返回 |
+| 方法 | 参数 | 返回 |
 |------|------|------|
-|| `screenshot(tab_id, options)` | tab_id, {format, quality} | `{success, dataUrl, format}` - 截取可见区域 |
-|| `screenshot_to_file(tab_id, filepath, format)` | tab_id, filepath, format | `filepath` - 截屏并保存到文件 |
+| `screenshot(tab_id, options)` | tab_id, {format, quality} | `{success, dataUrl, format}` - 截取可见区域 |
+| `screenshot_to_file(tab_id, filepath, format)` | tab_id, filepath, format | `filepath` - 截屏并保存到文件 |
 
 **使用场景：**
 - 登录过期时截屏二维码让用户扫码
 - 记录页面状态用于调试
 - 验证页面布局和渲染效果
+
+### 🆕 获取 HTML 方法 (v2.3)
+
+| 方法 | 参数 | 返回 |
+|------|------|------|
+| `get_html(tab_id)` | tab_id | `{success, html}` - 获取完整页面 HTML |
+
+**使用场景：**
+- 保存页面状态用于调试和分析
+- 复现复杂表单流程时记录每一步的 HTML
+- 用于自动化脚本的 HTML 备份
+
+**示例：**
+```python
+# 通过 _send_request 调用
+result = await client._send_request("Hermes.getHTML", {"tabId": tab_id}, timeout=30.0)
+html = result.get('html', '')
+
+# 保存到文件
+with open('page.html', 'w') as f:
+    f.write(html)
+```
 
 **示例：**
 

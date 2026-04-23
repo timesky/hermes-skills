@@ -50,8 +50,9 @@ raw/zhihu/2026-04-15/
 ### Python + web-fetcher (v3.0，推荐)
 
 ```bash
-# 使用 Python 脚本（支持所有类型 + URL 集合对比）
-python ~/.hermes/scripts/zhihu-collection-sync-v3.py
+# 使用 Python 脚本（支持所有类型 + URL 集合对比 + Agent Tab Group）
+# 注意：macOS 默认 python 是 Python 2.7，必须使用 python3
+python3 ~/.hermes/scripts/zhihu-collection-sync-v3.py
 
 # 限制每次抓取数量
 python ~/.hermes/scripts/zhihu-collection-sync-v3.py --max 5
@@ -60,10 +61,11 @@ python ~/.hermes/scripts/zhihu-collection-sync-v3.py --max 5
 python ~/.hermes/scripts/zhihu-collection-sync-v3.py --dry-run
 ```
 
-**v3.0 修复**：
+**v3.0 特性**：
 - ✅ 支持所有类型：文章 `/p/`、想法 `/pin/`、问答 `/question/`
 - ✅ 增量逻辑：URL 集合对比（每次先获取完整列表，过滤已抓取）
 - ✅ 不再用 ID 做结束标记（ID 是发布时间，不反映收藏顺序）
+- ✅ **Agent Tab Group**：独立页签分组（紫色"Hermes Agent"），不抢占用户当前活动页签，完成后自动关闭
 
 ### 检查 OpenCLI 状态
 
@@ -146,9 +148,21 @@ opencli doctor
 - Daemon 显示 "running" 但脚本报连接错误 → 检查 Chrome 扩展是否已加载
 - 扩展未连接 → 重新加载 `chrome://extensions/` 中的 OpenCLI 扩展
 
+### Chrome 扩展未连接
+
+健康检查显示 `clients: 0`：
+```json
+{"status":"ok","clients":0,"pending":0}  # ❌ 扩展未连接
+{"status":"ok","clients":1,"pending":0}  # ✅ 扩展已连接
+```
+
+解决：点击 Chrome 工具栏的「Hermes Web Fetcher」扩展图标，确保 WebSocket 开关为开启状态（绿色「已连接」徽章）。
+
+**注意**：Cron 任务无法自动触发扩展连接，需用户手动启用后才能正常抓取。
+
 ### 脚本限制
 
-脚本每次最多处理 5 篇文章。如果新增超过 5 篇：
+脚本每次最多处理 10 篇文章（默认）。如果新增超过限制：
 - 第一次运行抓取前 5 篇
 - 再次运行抓取剩余文章
 - Cron 任务会自动处理（下次定时触发时完成）
@@ -169,6 +183,7 @@ opencli doctor
 | 进度文件丢失 | 重新抓取会重复，需手动清理 raw 中重复文件 |
 | OpenCLI 版本 | **推荐 Node v22 + OpenCLI v1.7.4**（官方要求 >=21） |
 | 输出路径错误 | 检查脚本配置，确保输出到 raw/zhihu/ |
+| **Python 版本** | macOS 默认 `python` 是 Python 2.7，必须用 `python3` 运行脚本 |
 
 ---
 
