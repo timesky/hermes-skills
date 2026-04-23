@@ -26,7 +26,7 @@ import argparse
 
 # 配置
 HERMES_DIR = Path.home() / ".hermes"
-BACKUP_ROOT = Path("/Users/timesky/backup/hermes_agent_bak")
+BACKUP_ROOT = Path.home() / "backup" / "hermes_agent_bak"
 LOG_FILE = HERMES_DIR / "logs" / "restore.log"
 
 # 环境依赖检测清单

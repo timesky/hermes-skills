@@ -32,7 +32,7 @@ Hermes Agent 完整备份与恢复技能，确保可以快速恢复或迁移到�
 ## 备份目录结构
 
 ```
-/Users/timesky/backup/hermes_agent_bak/
+~/backup/hermes_agent_bak/
 ├── YYYY-MM-DD/                    # 每日备份
 │   ├── manifest.json              # 备份清单
 │   ├── config.yaml                # 配置
@@ -198,7 +198,7 @@ python3 ~/.hermes/scripts/restore_hermes.py --backup latest
 ### 目录结构
 
 ```
-/Users/timesky/backup/hermes_agent_bak/hermes-skills/  # Git 仓库（技能源文件）
+~/backup/hermes_agent_bak/hermes-skills/  # Git 仓库（技能源文件）
 ├── skills/
 │   ├── mcn/                     # 分类目录
 │   │   ├── wechat-mp-auto-publish/  # 技能源文件
@@ -222,19 +222,19 @@ python3 ~/.hermes/scripts/restore_hermes.py --backup latest
 
 1. **在 Git 仓库中创建**：
    ```bash
-   cd /Users/timesky/backup/hermes_agent_bak/hermes-skills/skills
+   cd ~/backup/hermes_agent_bak/hermes-skills/skills
    mkdir -p <category>/<skill-name>
    # 编写 SKILL.md 和相关文件
    ```
 
 2. **创建软连接**（只链接单个技能目录，不是整个分类）：
    ```bash
-   ln -s /Users/timesky/backup/hermes_agent_bak/hermes-skills/skills/<category>/<skill-name> ~/.hermes/skills/<category>/<skill-name>
+   ln -s ~/backup/hermes_agent_bak/hermes-skills/skills/<category>/<skill-name> ~/.hermes/skills/<category>/<skill-name>
    ```
 
 3. **提交到 Git**：
    ```bash
-   cd /Users/timesky/backup/hermes_agent_bak/hermes-skills
+   cd ~/backup/hermes_agent_bak/hermes-skills
    git add skills/<category>/<skill-name>
    git commit -m "添加新技能: <skill-name>"
    git push

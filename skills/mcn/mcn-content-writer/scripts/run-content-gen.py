@@ -22,8 +22,16 @@ from datetime import datetime
 
 # 配置
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
+
+# 从配置文件读取路径
+try:
+    with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
+        _config = yaml.safe_load(f)
+    KB_ROOT = _config.get('paths', {}).get('kb_root', os.path.expanduser("~/backup/知识库-Obsidian"))
+except:
+    KB_ROOT = os.path.expanduser("~/backup/知识库-Obsidian")
+
 # 目录约定（自包含，不依赖其他技能模块）
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
 MCN_ROOT = KB_ROOT + "/mcn"
 
 # ==================== LLM API 调用 ====================
@@ -88,7 +96,7 @@ def call_llm_api(prompt: str) -> str:
 
 # ==================== Workflow.json 锚点更新 ====================
 
-WORKFLOW_JSON = os.path.expanduser("~/backup/知识库-Obsidian/mcn/workflow.json")
+WORKFLOW_JSON = os.path.expanduser("/Users/hy_timesky/backup/知识库-Obsidian/mcn/workflow.json")
 
 def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
     """更新 workflow.json 状态

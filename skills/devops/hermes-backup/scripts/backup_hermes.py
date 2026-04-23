@@ -13,7 +13,7 @@ Hermes Agent 完整备份脚本
 - 在预定义 CUSTOM_SKILLS 列表中（精确匹配）
 - SKILL.md 中 author 字段是 Luna/timesky
 
-备份目录：/Users/timesky/backup/hermes_agent_bak/YYYY-MM-DD/
+备份目录：~/backup/hermes_agent_bak/YYYY-MM-DD/
 """
 
 import os
@@ -28,7 +28,7 @@ import subprocess
 
 # 配置
 HERMES_DIR = Path.home() / ".hermes"
-BACKUP_ROOT = Path("/Users/timesky/backup/hermes_agent_bak")
+BACKUP_ROOT = Path.home() / "backup" / "hermes_agent_bak"
 LOG_FILE = HERMES_DIR / "logs" / "backup.log"
 
 # 预定义的自研技能列表（精确匹配，只备份这些）

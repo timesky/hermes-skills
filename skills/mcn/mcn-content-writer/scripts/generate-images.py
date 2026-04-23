@@ -53,7 +53,7 @@ MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 
 # ==================== Workflow.json 锚点更新 ====================
 
-WORKFLOW_JSON = os.path.expanduser("~/backup/知识库-Obsidian/mcn/workflow.json")
+WORKFLOW_JSON = os.path.expanduser("/Users/hy_timesky/backup/知识库-Obsidian/mcn/workflow.json")
 
 def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
     """更新 workflow.json 状态
@@ -116,7 +116,7 @@ GRSAI_MODEL = _grsai_config.get('models', {}).get(_grsai_config.get('default_mod
 POLL_INTERVAL = 5
 MAX_POLL_COUNT = 60
 
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+KB_ROOT = "/Users/hy_timesky/backup/知识库-Obsidian"
 MCN_ROOT = KB_ROOT + "/mcn"
 
 def slugify(text):

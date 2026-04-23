@@ -67,11 +67,14 @@ python ~/.hermes/scripts/zhihu-collection-sync-v3.py --dry-run
 - ✅ 不再用 ID 做结束标记（ID 是发布时间，不反映收藏顺序）
 - ✅ **Agent Tab Group**：独立页签分组（紫色"Hermes Agent"），不抢占用户当前活动页签，完成后自动关闭
 
-### 检查 OpenCLI 状态
+### 检查 web-fetcher 服务状态
 
 ```bash
-opencli daemon status    # 检查 daemon 状态
-opencli doctor           # 完整诊断（推荐）
+curl http://localhost:9234/health
+# 期望输出: {"status":"ok","clients":1,"pending":0}
+
+# clients: 1 表示扩展已连接
+# clients: 0 表示扩展未连接，需在 Chrome 中启用 Hermes Web Fetcher 扩展
 ```
 
 ---
@@ -128,25 +131,27 @@ wikiLLM/结构化知识
 
 ## 故障排查
 
-### OpenCLI daemon 未运行
+### web-fetcher 服务未运行
 
-错误：`ECONNREFUSED 127.0.0.1:19825`
+错误：`Connection failed: Multiple exceptions... port 9234`
 
 解决：
 ```bash
-# 1. 检查 daemon 状态
-opencli daemon status
+# 1. 检查 Node.js 是否安装
+which node || /opt/homebrew/bin/node --version
+# 如未安装：brew install node
 
-# 2. 如果未运行，直接运行脚本会自动启动 daemon
-# 或者使用 doctor 诊断
-opencli doctor
+# 2. 启动服务
+~/.hermes/skills/web/web-fetcher/server/start_server.sh start
 
-# 注意：没有 `opencli browser start` 命令，daemon 会在需要时自动启动
+# 3. 验证健康状态
+curl http://localhost:9234/health
 ```
 
 **常见情况**：
-- Daemon 显示 "running" 但脚本报连接错误 → 检查 Chrome 扩展是否已加载
-- 扩展未连接 → 重新加载 `chrome://extensions/` 中的 OpenCLI 扩展
+- `node: command not found` → Node.js 未安装，运行 `brew install node`
+- 服务启动失败 → 检查端口 9234 是否被占用：`lsof -i :9234`
+- 扩展未连接 → 点击 Chrome 工具栏 Hermes Web Fetcher 扩展图标，确保 WebSocket 开关开启
 
 ### Chrome 扩展未连接
 
@@ -181,8 +186,8 @@ opencli doctor
 | 问题 | 解决方案 |
 |------|----------|
 | 进度文件丢失 | 重新抓取会重复，需手动清理 raw 中重复文件 |
-| OpenCLI 版本 | **推荐 Node v22 + OpenCLI v1.7.4**（官方要求 >=21） |
-| 输出路径错误 | 检查脚本配置，确保输出到 raw/zhihu/ |
+| Node.js 未安装 | v3.0 依赖 web-fetcher，需 Node.js：`brew install node` |
+| 输出路径错误 | 检查脚本配置，确保输出到 raw/sources/zhihu/ |
 | **Python 版本** | macOS 默认 `python` 是 Python 2.7，必须用 `python3` 运行脚本 |
 
 ---

@@ -64,6 +64,21 @@ Hermes → Python 客户端 → WebSocket 服务(9234) → Chrome 扩展 → 目
 
 Hermes 会自动启动/关闭 WebSocket 服务器，无需用户手动操作。
 
+### 前置依赖
+
+**Node.js 必须安装**（服务器运行需要）：
+
+```bash
+# 检查是否已安装
+which node || node --version
+
+# macOS 安装（推荐）
+brew install node
+
+# 或通过 NVM
+nvm install 22
+```
+
 ### 服务启动流程
 
 ```bash
@@ -399,10 +414,12 @@ for page in range(1, total_pages + 1):
 
 | 问题 | 检查步骤 |
 |------|----------|
+| **Node.js 未安装** | `which node` 无输出 → `brew install node` |
 | 服务未启动 | `curl http://localhost:9234/health` 是否返回 |
 | 扩展未连接 | 检查 Popup 状态徽章，确认开关已启用 |
 | 抓取失败 | 检查 Chrome DevTools → Extensions → Service Worker 日志 |
 | 页面空白 | 等待页面完全加载后再抓取 |
+| 端口被占用 | `lsof -i :9234` 检查并 kill 占用进程 |
 
 ### 查看扩展日志
 
@@ -440,10 +457,11 @@ for page in range(1, total_pages + 1):
 
 使用前确认：
 
+- [ ] **Node.js 已安装**（`which node` 有输出）
 - [ ] Chrome 扩展已安装（从 `extension/` 目录加载）
 - [ ] 扩展 Popup 显示「已连接」状态
 - [ ] 目标页面已在 Chrome 中打开
-- [ ] WebSocket 服务已启动（Hermes 自动处理）
+- [ ] WebSocket 服务已启动（`curl localhost:9234/health` 返回 OK）
 
 ---
 

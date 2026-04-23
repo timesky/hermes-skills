@@ -23,7 +23,7 @@ from datetime import datetime
 
 # 配置
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+KB_ROOT = "/Users/hy_timesky/backup/知识库-Obsidian"
 MCN_ROOT = KB_ROOT + "/mcn"
 
 def load_config():

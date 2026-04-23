@@ -163,40 +163,81 @@ def check_topic_excluded(title, published_articles, cutoff_time, cutoff_date):
 
 
 def load_hotspot_data(date: str) -> list:
-    """从 mcn/hotspot/{date}/hotspot-aggregated.md 读取热点数据"""
-    filepath = f"{MCN_ROOT}/hotspot/{date}/hotspot-aggregated.md"
+    """从 mcn/hotspot/{date}/hotspot.json 读取热点数据（优先JSON，备用MD）"""
+    json_filepath = f"{MCN_ROOT}/hotspot/{date}/hotspot.json"
+    md_filepath = f"{MCN_ROOT}/hotspot/{date}/hotspot-aggregated.md"
     
-    if not os.path.exists(filepath):
-        print(f"⚠️ 未找到 {date} 的热搜数据: {filepath}")
-        return []
-    
-    content = open(filepath, encoding='utf-8').read()
     all_items = []
     
-    # 解析 Markdown 列表格式
-    for line in content.split('\n'):
-        if line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.', '10.', 
-                                     '11.', '12.', '13.', '14.', '15.', '16.', '17.', '18.', '19.', '20.',
-                                     '21.', '22.', '23.', '24.', '25.', '26.', '27.', '28.', '29.', '30.')):
-            match = re.search(r'\[([^\]]+)\]\(([^)]+)\)', line)
-            if match:
-                title = match.group(1).strip()
-                url = match.group(2).strip()
-                
-                heat_match = re.search(r'热度[:\s]*(\d+)', line)
-                heat = heat_match.group(1) if heat_match else 'N/A'
-                
-                item = {
-                    'rank': len(all_items) + 1,
-                    'title': title,
-                    'heat': heat,
-                    'url': url,
-                    'source': 'unknown'
-                }
-                all_items.append(item)
+    # 优先从 JSON 文件读取
+    if os.path.exists(json_filepath):
+        with open(json_filepath, encoding='utf-8') as f:
+            raw_items = json.load(f)
+        
+        for item in raw_items:
+            all_items.append({
+                'rank': len(all_items) + 1,
+                'title': item.get('title', ''),
+                'heat': item.get('heat', 'N/A'),
+                'url': item.get('url', ''),
+                'source': item.get('source', 'unknown'),
+                'platform': item.get('platform', '')
+            })
+        
+        print(f"✓ 从 JSON 加载 {len(all_items)} 条热搜数据")
+    elif os.path.exists(md_filepath):
+        # 备用：从 MD 文件解析
+        content = open(md_filepath, encoding='utf-8').read()
+        
+        for line in content.split('\n'):
+            if line.strip().startswith(('1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.', '10.', 
+                                         '11.', '12.', '13.', '14.', '15.', '16.', '17.', '18.', '19.', '20.',
+                                         '21.', '22.', '23.', '24.', '25.', '26.', '27.', '28.', '29.', '30.')):
+                match = re.search(r'\[([^\]]+)\]\(([^)]+)\)', line)
+                if match:
+                    title = match.group(1).strip()
+                    url = match.group(2).strip()
+                    
+                    heat_match = re.search(r'热度[:\s]*(\d+)', line)
+                    heat = heat_match.group(1) if heat_match else 'N/A'
+                    
+                    all_items.append({
+                        'rank': len(all_items) + 1,
+                        'title': title,
+                        'heat': heat,
+                        'url': url,
+                        'source': 'unknown'
+                    })
+        
+        print(f"✓ 从 MD 加载 {len(all_items)} 条热搜数据")
+    else:
+        print(f"⚠️ 未找到 {date} 的热搜数据")
+        return []
     
-    print(f"✓ 加载 {len(all_items)} 条热搜数据")
-    return all_items
+    # URL 去重：同一 URL 的多条记录合并，保留标题最完整的一条
+    url_items = {}
+    for item in all_items:
+        url = item.get('url', '')
+        if not url:
+            continue
+        
+        if url not in url_items:
+            url_items[url] = item
+        else:
+            # 保留标题更完整的（更长的）
+            existing_title = url_items[url].get('title', '')
+            new_title = item.get('title', '')
+            if len(new_title) > len(existing_title) and not new_title.endswith('。'):
+                # 新标题更长且不是句子结尾（可能是更完整的标题）
+                url_items[url] = item
+    
+    deduplicated_items = list(url_items.values())
+    deduplicated_count = len(all_items) - len(deduplicated_items)
+    
+    if deduplicated_count > 0:
+        print(f"✓ URL 去重：合并 {deduplicated_count} 条重复记录")
+    
+    return deduplicated_items
 
 
 def is_mixed_topic(title: str) -> bool:

@@ -1,0 +1,205 @@
+# MCN 工作流统一目录配置
+# 所有脚本必须从此配置读取目录路径，禁止硬编码
+# 
+# 目录设计原则：
+# 1. 每篇文章独立目录，避免多文章配图混淆
+# 2. 文章和配图在同一目录下，方便管理
+# 3. topic_slug 由选题标题自动生成（去除特殊字符，空格转下划线）
+#
+# 目录结构：
+# mcn/content/{date}/{topic_slug}/
+# ├── article.md
+# └── images/
+#     ├── cover.png
+#     ├── img_*.png
+#     └── tasks.json
+
+paths:
+  kb_root: /Users/YOUR_NAME/backup/知识库-Obsidian
+  mcn_root: ${kb_root}/mcn
+  hotspot_dir: ${mcn_root}/hotspot/{date}
+  topic_dir: ${mcn_root}/topic/{date}
+  # 文章目录：每篇文章独立
+  content_base_dir: ${mcn_root}/content/{date}
+  # 文章具体目录（含topic_slug）
+  article_dir: ${mcn_root}/content/{date}/{topic_slug}
+  # 配图目录：在文章目录下的images子目录
+  images_dir: ${mcn_root}/content/{date}/{topic_slug}/images
+  publish_dir: ${mcn_root}/publish
+
+# ============================================================
+# 热点数据源配置
+# ============================================================
+hotspot:
+  channels:
+    # 36kr AI频道
+    36kr_ai:
+      domain: AI应用
+      name: 36氪-AI
+      priority: 1
+      type: channel_direct
+      url: https://36kr.com/information/AI/
+    
+    # 36kr 技术频道
+    36kr_tech:
+      domain: 科技
+      name: 36氪-技术
+      priority: 1
+      type: channel_direct
+      url: https://36kr.com/information/technology/
+    
+    # 抖音热榜（需 opencli）
+    douyin:
+      cmd: opencli douyin hashtag hot --limit 50 --format json
+      domain: 综合
+      keywords:
+        - 科技
+        - AI
+        - 编程
+      name: 抖音热榜
+      priority: 2
+      type: cmd
+    
+    # 微博热搜（需 opencli）
+    weibo:
+      cmd: opencli weibo hot --limit 50 --format json
+      domain: 综合
+      keywords:
+        - 科技
+        - AI
+        - 互联网
+      name: 微博热搜
+      priority: 1
+      type: cmd
+
+  # 域名分类（用于热点归类）
+  domains:
+    AI应用:
+      description: 人工智能应用相关
+      keywords:
+        - AI
+        - 人工智能
+        - 机器学习
+        - 大模型
+        - GPT
+        - Claude
+    科技:
+      description: 科技行业动态
+      keywords:
+        - 科技
+        - 互联网
+        - 芯片
+        - 半导体
+    综合:
+      description: 通用热点
+      keywords: []
+
+# ============================================================
+# 选题分析配置
+# ============================================================
+topic:
+  # 已发布历史记录（用于排重）
+  history_file: ${mcn_root}/topic/history.json
+  # 单次推荐选题数量
+  recommend_count: 5
+  # 排除关键词（不符合定位的话题）
+  exclude_keywords:
+    - 娱乐圈
+    - 明星八卦
+    - 体育赛事
+  # 优先级权重
+  priority_weights:
+    relevance: 0.4      # 与定位相关性
+    freshness: 0.3      # 时效性
+    engagement: 0.2     # 互动热度
+    uniqueness: 0.1     # 独特性（未发布过）
+
+# ============================================================
+# 内容生成配置
+# ============================================================
+content:
+  # 文章字数范围
+  word_count:
+    min: 1500
+    max: 2000
+  
+  # 去AI化配置
+  humanize:
+    enabled: true
+    # AI特征词库
+    ai_phrases_file: ${mcn_root}/config/ai_phrases.txt
+  
+  # 人设设置
+  persona:
+    role: 科技从业者
+    perspective: 开发者视角
+    tone: 专业但亲切
+
+# ============================================================
+# 配图配置
+# ============================================================
+image:
+  # 配图数量（不含封面）
+  content_images: 2
+  
+  # 图片尺寸
+  cover_size:
+    width: 900
+    height: 500
+  
+  # 图片生成提供商
+  provider: doubao  # doubao 或 grsai
+  
+  # 豆包配置（支持中文提示词）
+  doubao:
+    api_key: YOUR_DOUBAO_API_KEY
+    model: doubao-seedream-4-5-251128
+    base_url: https://ark.cn-beijing.volces.com/api/v3
+    size: 2048x2048
+  
+  # GrsAI配置（需英文提示词）
+  grsai:
+    api_key: YOUR_GRSAI_API_KEY
+    model: flux
+    size: 1024x1024
+
+# ============================================================
+# 微信公众号发布配置
+# ============================================================
+publish:
+  # 代理设置（微信API调用需要）
+  # 如果本机IP不在白名单，需要通过代理访问
+  # 格式: http://user:password@host:port
+  proxy: http://wxproxy:YOUR_PASSWORD@47.92.220.40:29098
+  
+  accounts:
+    main:
+      # 微信公众号开发者凭证
+      # 获取方式：公众号后台 -> 设置与开发 -> 基本配置
+      appid: YOUR_APP_ID
+      secret: YOUR_APP_SECRET
+
+# ============================================================
+# 排版配置
+# ============================================================
+layout:
+  # 尾部固定内容
+  footer: |
+    <section style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+      <p style="text-align: center; color: #888; font-size: 12px;">
+        关注「程序员的开发手册」，获取更多技术干货
+      </p>
+    </section>
+  
+  # 标题候选数量
+  title_candidates: 5
+  
+  # 是否添加标签建议
+  include_tags: false
+
+# ============================================================
+# 工作流状态文件
+# ============================================================
+workflow:
+  file: ${mcn_root}/workflow.json
+  # 状态流转: pending_user_choice -> topic_selected -> content_done -> images_done -> published

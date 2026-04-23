@@ -157,6 +157,7 @@ eval "$(pyenv init -)" && python3 ~/.hermes/skills/mcn/mcn-topic-selector/script
 | 热点数据缺失 | 先执行 mcn-hotspot-research |
 | 话题排除但用户仍选 | 用户可能远程操作，排除逻辑需验证；核心实体词匹配要覆盖常见词（机器人、AI、芯片等） |
 | 草稿未被排除 | 排重仅检查 `mcn_published.json`（已发布），草稿未发布不会被排除。**解决方案**：可选参数 `--check-drafts` 检查 `mcn/content/{date}/` 目录下已有草稿，避免重复选题 |
+| 热点数据URL重复 | 同一URL出现多条标题（36kr文章有主标题+副标题），导致选题列表重复。**解决方案**：`load_hotspot_data()` 已增加URL去重逻辑，优先读取JSON数据源，保留标题最完整的记录。验证：36条→21条（合并15条重复） |
 | publish_date 缺失导致排除失效 | 当文章 `publish_date` 和 `publish_time` 为空时，`'' >= cutoff_date` 返回 False，所有文章被过滤掉。**解决方案**：`check_topic_excluded()` 已修复，空日期文章默认纳入比较（不按日期过滤） |
 
 ---

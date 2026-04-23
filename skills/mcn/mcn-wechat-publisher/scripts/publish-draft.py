@@ -26,7 +26,7 @@ from datetime import datetime
 
 # ==================== Workflow.json 锚点更新 ====================
 
-WORKFLOW_JSON = os.path.expanduser("~/backup/知识库-Obsidian/mcn/workflow.json")
+WORKFLOW_JSON = os.path.expanduser("/Users/hy_timesky/backup/知识库-Obsidian/mcn/workflow.json")
 
 def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
     """更新 workflow.json 状态
@@ -86,7 +86,7 @@ APPID = publish_config.get('appid', '')
 SECRET = publish_config.get('secret', '')
 AUTHOR = publish_config.get('author', 'TimeSky')
 
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+KB_ROOT = "/Users/hy_timesky/backup/知识库-Obsidian"
 MCN_ROOT = KB_ROOT + "/mcn"
 
 # 目录约定（自包含，不依赖其他技能模块）
