@@ -22,6 +22,15 @@ updated: 2026-04-20
 2. **用户已登录公众号后台**（mp.weixin.qq.com）
 3. 登录过期时可截屏二维码让用户扫码
 
+## 关键页面路径配置
+
+详见 `references/mp_api_paths.md`，包含：
+- 首页、已发布文章列表、草稿管理等关键页面 URL
+- 文章数据字段结构（read_num, like_num, share_num 等）
+- Token 过期处理方法
+
+**⚠️ Token 会过期**，每次使用前检测登录状态
+
 ## 执行流程
 
 ### 1. 启动 WebSocket 服务
@@ -155,4 +164,4 @@ python fetch-published-stats.py --token 123456789
 
 ---
 
-*Last updated: 2026-04-20 by Luna*
+*Last updated: 2026-04-24 by Luna (added mp_api_paths.md reference)*

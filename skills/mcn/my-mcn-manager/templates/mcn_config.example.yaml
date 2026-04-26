@@ -15,7 +15,9 @@
 #     └── tasks.json
 
 paths:
-  kb_root: /Users/YOUR_NAME/backup/知识库-Obsidian
+  # 知识库根目录 - 所有脚本从此配置项读取路径
+  # 修改此处即可改变所有脚本的输出目录
+  kb_root: /Users/YOUR_NAME/Documents/My_Obsidian
   mcn_root: ${kb_root}/mcn
   hotspot_dir: ${mcn_root}/hotspot/{date}
   topic_dir: ${mcn_root}/topic/{date}

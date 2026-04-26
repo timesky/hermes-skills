@@ -13,8 +13,8 @@ import yaml
 from datetime import datetime
 from playwright.async_api import async_playwright
 
-# 目录约定
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+# 默认目录
+KB_ROOT = os.path.expanduser("~/Documents/My_Obsidian")
 MCN_ROOT = KB_ROOT + "/mcn"
 
 # 从配置读取（可选覆盖）

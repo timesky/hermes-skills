@@ -25,7 +25,7 @@ author: Luna
 || 进度文件 (v3.0) | `/tmp/zhihu_collection_progress_v3.json` |
 || 脚本路径 (v2.0) | `~/.hermes/scripts/opencli-zhihu-collection-v2.js`（已废弃） |
 || 脚本路径 (v1.x) | `~/.hermes/scripts/opencli-zhihu-collection.js`（已废弃） |
-|| 输出目录 | `~/backup/知识库-Obsidian/raw/sources/zhihu/{日期}/` |
+|| 输出目录 | `~/Documents/My_Obsidian/raw/sources/zhihu/{日期}/` |
 
 **输出路径说明**：直接输出到 `raw/sources/`，方便 wiki-ingest 自动发现和整理。
 

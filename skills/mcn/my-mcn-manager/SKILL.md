@@ -48,6 +48,7 @@ updated: 2026-04-16
 | ai-image-generation | 配图生成（被本技能调用） | `~/.hermes/skills/content/ai-image-generation/SKILL.md` |
 | mcn-wechat-publisher | 微信公众号草稿发布 | `~/.hermes/skills/mcn/mcn-wechat-publisher/SKILL.md` |
 | mcn-zhihu-publisher | 知乎专栏草稿保存（仅草稿） | `~/.hermes/skills/mcn/mcn-zhihu-publisher/SKILL.md` |
+| wechat-analytics | 公众号数据采集（阶段 8） | `~/.hermes/skills/mcn/wechat-analytics/SKILL.md` |
 
 **缺失处理**：如果子技能缺失，提示用户安装：
 ```
@@ -72,25 +73,47 @@ updated: 2026-04-16
 
 ## 工作流集合
 
-### 工作流 1：微信公众号发布（当前）
+### 工作流 1：微信公众号闭环（当前）
+
+**完整 9 阶段闭环流程**：
 
 ```
-热点调研 → 选题分析 → 飞书推送 → 用户选择 → 内容生成 → 配图 → 发布草稿
+生产阶段（1-7）→ 反馈阶段（8-9）
+调研 → 选题 → 改写 → 去AI化 → 排版 → 配图 → 发布 → 数据采集 → 对比优化
 ```
 
-| 阶段 | 子技能 | 产出交付 |
-|------|--------|----------|
-| 1 | mcn-hotspot-research | `mcn/hotspot/{date}/hotspot.json` |
-| 2 | mcn-topic-selector | `mcn/topic/{date}/recommend.md` + 飞书推送 |
-| 3 | 用户选择 | 用户指定选题标题 |
-| 4 | mcn-content-writer | `mcn/content/{date}/{slug}/article.md`（1500-2000字） |
-| 5 | ai-image-generation | `mcn/content/{date}/{slug}/images/*.png`（4张） |
-| 6 | publish-draft（本技能脚本） | 公众号草稿 media_id |
+| 阶段 | 名称 | 子技能 | 产出交付 |
+|------|------|--------|----------|
+| 1 | 调研 | mcn-hotspot-research | `mcn/hotspot/{date}/hotspot.json` |
+| 2 | 选题+预抓取 | mcn-topic-selector | `mcn/topic/{date}/recommend.md` + **`sources/`目录**（原文+竞品数据） |
+| 3 | 用户选择 | - | 用户指定选题标题 |
+| 4 | 改写 | mcn-content-writer | `mcn/content/{date}/{slug}/article.md`（1500-2000字） |
+| 5 | 排版 | mcn-content-writer | `mcn/content/{date}/{slug}/article-layout.html` |
+| 6 | 配图 | ai-image-generation | `mcn/content/{date}/{slug}/images/*.png`（3张） |
+| 7 | 发布 | publish-draft（本技能脚本） | 公众号草稿 media_id |
+| 8 | 数据采集 | wechat-analytics（定时任务） | 已发布文章阅读/点赞/收藏/转发数据 |
+| 9 | 对比优化 | 定时任务（读取本地数据） | 优化改写提示词 → 反哺阶段4 |
+
+**闭环逻辑**：
+- 阶段 8-9 由定时任务每日执行（21:00）
+- 采集已发布文章数据 → 对比原文/竞品 → 分析差异 → 优化提示词
+- 优化后的提示词直接影响阶段 4 的内容生成质量
+
+**对比分析维度**：
+
+| 维度 | 分析内容 | 优化目标 |
+|------|----------|----------|
+| 标题 | 长度、钩子类型、情感词 | 标题竞选评分规则 |
+| 内容 | 段落结构、信息密度、深度 | 改写模板优化 |
+| 写作风格 | 口语化程度、专业术语比例 | 去AI化规则调整 |
+| 表达方式 | 故事化/数据化/观点化 | 文风偏好设定 |
+| 排版 | 图片位置、列表使用、分段长度 | 排版模板调整 |
+| 引流话术 | 结尾引导、关注提示 | 固定尾部优化 |
 
 ### 工作流 2：知乎专栏发布
 
 ```
-热点调研 → 选题分析 → 飞书推送 → 用户选择 → 内容生成 → 知乎草稿
+调研 → 选题 → 用户选择 → 内容生成 → 知乎草稿
 ```
 
 | 阶段 | 子技能 | 产出交付 |
@@ -174,7 +197,7 @@ Luna:
 import json
 from datetime import datetime
 
-workflow_path = "~/backup/知识库-Obsidian/mcn/workflow.json"
+workflow_path = "~/Documents/My_Obsidian/mcn/workflow.json"
 with open(workflow_path, 'r') as f:
     workflow = json.load(f)
 
@@ -296,11 +319,21 @@ Luna:
 
 ```
 mcn/
-├── hotspot/{date}/              # 阶段1产出
-├── topic/{date}/                # 阶段2产出
-├── content/{date}/{slug}/       # 阶段4产出
-│   ├── article.md
-│   └── images/                  # 阶段5产出
+├── hotspot/{date}/              # 阶段1产出：热点数据
+├── topic/{date}/                # 阶段2产出：选题分析
+│   ├── recommend.md             # Top 5 推荐报告
+│   ├── analysis.json            # 详细分析数据
+│   └── sources/                 # 【新增】预抓取数据
+│       ├── topic-1/
+│       │   ├── source.json      # 原文完整内容+数据
+│       │   ├── source.html      # 原文HTML（备用）
+│       │   └── competitors.json # 竞品文章（top 5-10）
+│       ├── topic-2/
+│       └── ...
+├── content/{date}/{slug}/       # 阶段4产出：内容
+│   ├── article.md               # 改写后的文章
+│   ├── article-layout.html      # 排版后的HTML
+│   └── images/                  # 阶段6产出：配图
 └── publish/                     # 发布记录
 ```
 
@@ -338,6 +371,40 @@ Luna:
 
 ---
 
+## baoyu-skills 集成（增强发布能力）
+
+**安装方式**：
+```bash
+npx skills add https://github.com/jimliu/baoyu-skills -y
+```
+
+**⚠️ Hermes 识别问题**：npx 安装后技能在 `.agents/skills/` 目录，需创建符号链接：
+```bash
+# Profile 环境下 ~ 指向 $HERMES_HOME/home
+for skill in ~/.hermes/profiles/mcn/.agents/skills/baoyu-*; do
+  ln -sf "$skill" ~/.hermes/profiles/mcn/skills/$(basename "$skill")
+done
+```
+
+**核心技能映射**：
+| baoyu 技能 | 功能 | 替代 |
+|------------|------|------|
+| baoyu-post-to-wechat | 公众号 API/Browser 发布 | 现有发布脚本 |
+| baoyu-format-markdown | Markdown 格式化 + 标题生成 | 内容排版增强 |
+| baoyu-cover-image | 5 维封面图生成 | 豆包封面生成 |
+| baoyu-image-cards | 小红书图片卡片 | 小红书发布流程 |
+
+**配置文件**：
+- `/Users/hy_timesky/.baoyu-skills/baoyu-post-to-wechat/EXTEND.md` — 账号配置（作者、主题、颜色）
+- `/Users/hy_timesky/.baoyu-skills/.env` — API 凭证（AppID/Secret）
+
+**使用要求**：
+- 需要 bun 运行时（或 npx）
+- 已配置公众号 AppID/Secret
+- EXTEND.md 中设置 default_author: TimeSky, need_open_comment: 1
+
+---
+
 ## Pitfalls
 
 | 问题 | 原因 | 解决方案 |
@@ -346,6 +413,8 @@ Luna:
 | 产出找不到 | 目录约定不一致 | 检查 `references/config.md` |
 | 配图和文章分离 | 传递了错误 topic | 使用 slugify 确保路径一致 |
 | 工作流中断 | 子技能执行失败 | 返回失败状态，不继续下一阶段 |
+| 飞书推送路径错误 | push-to-feishu.py 曾硬编码 `/Users/timesky/` | 已修复：现在从 `~/.hermes/mcn_config.yaml` 读取 kb_root 路径 |
+| baoyu 技能不识别 | npx 安装在 .agents/skills/ | 创建符号链接到 skills/ 目录 |
 
 ---
 
@@ -360,6 +429,7 @@ Luna:
 | 04-image-generation.md | 配图生成详细流程 |
 | 05-humanizer.md | 去 AI 化详细流程 |
 | 06-publishing.md | 发布流程详细说明 |
+| 07-analytics-feedback.md | 闭环分析详细流程（阶段 8-9） |
 
 ---
 

@@ -36,9 +36,15 @@ source: mcn-topic-selector (整合)
 import glob
 import yaml
 
+# 从配置文件读取路径，配置项: ~/.hermes/mcn_config.yaml → paths.kb_root
+config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+with open(config_path, 'r') as f:
+    config = yaml.safe_load(f)
+KB_ROOT = config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
+
 def load_hotspot_data(date: str) -> list:
     """加载指定日期的热搜数据"""
-    pattern = f"/Users/timesky/backup/知识库-Obsidian/tmp/hotspot/{date}/*.md"
+    pattern = f"{KB_ROOT}/tmp/hotspot/{date}/*.md"
     files = glob.glob(pattern)
     
     all_items = []

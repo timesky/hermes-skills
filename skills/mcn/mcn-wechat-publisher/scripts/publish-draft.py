@@ -24,40 +24,40 @@ import yaml
 import re
 from datetime import datetime
 
-# ==================== Workflow.json 锚点更新 ====================
+# 加载配置（需要在 WORKFLOW_JSON 之前）
+config_path = "/Users/hy_timesky/.hermes/mcn_config.yaml"
+if not os.path.exists(config_path):
+    config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
+if os.path.exists(config_path):
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+else:
+    config = {}
 
-WORKFLOW_JSON = os.path.expanduser("/Users/hy_timesky/backup/知识库-Obsidian/mcn/workflow.json")
+# 从配置读取 kb_root
+KB_ROOT = config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
+MCN_ROOT = KB_ROOT + "/mcn"
+
+# ==================== Workflow.json 锚点更新 ====================
+WORKFLOW_JSON = os.path.join(KB_ROOT, "mcn/workflow.json")
 
 def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
-    """更新 workflow.json 状态
-    
-    Args:
-        status: 新状态 (content_done, images_done, published)
-        topic_slug: 当前选题 slug（可选，用于更新 current_topic）
-        data_updates: 其他数据字段更新（可选）
-    """
+    """更新 workflow.json 状态"""
     try:
         if not os.path.exists(WORKFLOW_JSON):
             print(f"  ⚠️ workflow.json 不存在，跳过更新")
             return
-        
         with open(WORKFLOW_JSON, 'r', encoding='utf-8') as f:
             workflow = json.load(f)
-        
         workflow['status'] = status
         workflow['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         if topic_slug:
             workflow['current_topic'] = topic_slug
-        
         if data_updates:
             workflow.update(data_updates)
-        
         with open(WORKFLOW_JSON, 'w', encoding='utf-8') as f:
             json.dump(workflow, f, indent=2, ensure_ascii=False)
-        
         print(f"  ✓ workflow.json 已更新: status={status}")
-        
     except Exception as e:
         print(f"  ⚠️ workflow.json 更新失败: {e}")
 
@@ -75,19 +75,11 @@ def load_env():
 
 load_env()
 
-# 加载配置
-config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
-with open(config_path, 'r', encoding='utf-8') as f:
-    config = yaml.safe_load(f)
-
 publish_config = config.get('publish', {}).get('accounts', {}).get('main', {})
 PROXY = config.get('publish', {}).get('proxy', '')
 APPID = publish_config.get('appid', '')
 SECRET = publish_config.get('secret', '')
 AUTHOR = publish_config.get('author', 'TimeSky')
-
-KB_ROOT = "/Users/hy_timesky/backup/知识库-Obsidian"
-MCN_ROOT = KB_ROOT + "/mcn"
 
 # 目录约定（自包含，不依赖其他技能模块）
 def slugify(text):
@@ -144,11 +136,22 @@ def upload_permanent_image(access_token, filepath):
     with open(filepath, 'rb') as f:
         image_data = f.read()
     
+    # 检测实际图片类型（根据文件头）
+    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+        content_type = 'image/png'
+        filename = 'image.png'
+    elif image_data[:2] == b'\xff\xd8':
+        content_type = 'image/jpeg'
+        filename = 'image.jpg'
+    else:
+        content_type = 'image/png'
+        filename = 'image.png'
+    
     boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
     body = bytearray()
     body.extend(f'--{boundary}\r\n'.encode())
-    body.extend(f'Content-Disposition: form-data; name="media"; filename="image.png"\r\n'.encode())
-    body.extend(f'Content-Type: image/png\r\n\r\n'.encode())
+    body.extend(f'Content-Disposition: form-data; name="media"; filename="{filename}"\r\n'.encode())
+    body.extend(f'Content-Type: {content_type}\r\n\r\n'.encode())
     body.extend(image_data)
     body.extend(f'\r\n--{boundary}--\r\n'.encode())
     
@@ -199,11 +202,23 @@ def upload_content_image(access_token, filepath):
     with open(filepath, 'rb') as f:
         image_data = f.read()
     
+    # 检测实际图片类型（根据文件头）
+    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+        content_type = 'image/png'
+        filename = 'image.png'
+    elif image_data[:2] == b'\xff\xd8':
+        content_type = 'image/jpeg'
+        filename = 'image.jpg'
+    else:
+        # 默认 PNG
+        content_type = 'image/png'
+        filename = 'image.png'
+    
     boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
     body = bytearray()
     body.extend(f'--{boundary}\r\n'.encode())
-    body.extend(f'Content-Disposition: form-data; name="media"; filename="image.png"\r\n'.encode())
-    body.extend(f'Content-Type: image/png\r\n\r\n'.encode())
+    body.extend(f'Content-Disposition: form-data; name="media"; filename="{filename}"\r\n'.encode())
+    body.extend(f'Content-Type: {content_type}\r\n\r\n'.encode())
     body.extend(image_data)
     body.extend(f'\r\n--{boundary}--\r\n'.encode())
     
@@ -253,6 +268,8 @@ def md_to_html(md_content, image_urls, cover_url=None):
     
     title = ""
     content_started = False
+    in_table = False
+    table_rows = []
     
     for line in lines:
         if line.startswith('# ') and not title:
@@ -263,16 +280,69 @@ def md_to_html(md_content, image_urls, cover_url=None):
         if not content_started:
             continue
         
+        # 处理表格
+        if line.startswith('|') and '|' in line[1:]:
+            if not in_table:
+                in_table = True
+                table_rows = []
+            # 跳过表头分隔行 |---|---|
+            if not re.match(r'^\|[\s\-:]+\|[\s\-:]+\|', line):
+                cells = [c.strip() for c in line.split('|') if c.strip()]
+                table_rows.append(cells)
+            continue
+        elif in_table:
+            # 表格结束，生成 HTML
+            in_table = False
+            if table_rows:
+                table_html = '<table style="width: 100%; border-collapse: collapse; margin: 15px 0;">'
+                for i, row in enumerate(table_rows):
+                    bg = '#f5f5f5' if i == 0 else '#fff'
+                    table_html += '<tr style="background: ' + bg + ';">'
+                    for cell in row:
+                        # 处理单元格内的加粗
+                        cell = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', cell)
+                        if i == 0:
+                            table_html += f'<th style="padding: 10px; border: 1px solid #ddd; text-align: left;">{cell}</th>'
+                        else:
+                            table_html += f'<td style="padding: 10px; border: 1px solid #ddd;">{cell}</td>'
+                    table_html += '</tr>'
+                table_html += '</table>'
+                html_parts.append(table_html)
+            table_rows = []
+        
+        # 处理分隔线
+        if line.strip() == '---':
+            html_parts.append('<hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;"/>')
+            continue
+        
+        # 处理三级标题
+        if line.startswith('### '):
+            html_parts.append(f'<p style="font-weight: bold; font-size: 15px;">{line[4:].strip()}</p>')
+            continue
+        
+        # 处理二级标题
         if line.startswith('## '):
-            html_parts.append(f'<p><strong>{line[3:].strip()}</strong></p>')
-        elif line.startswith('**') and line.endswith('**'):
-            html_parts.append(f'<p><strong>{line[2:-2]}</strong></p>')
-        elif line.strip() == '':
+            html_parts.append(f'<p style="font-weight: bold; font-size: 16px; margin-top: 20px;">{line[3:].strip()}</p>')
+            continue
+        
+        # 处理空行
+        if line.strip() == '':
             html_parts.append('<br/>')
-        elif line.startswith('- ') or line.startswith('* '):
-            html_parts.append(f'<p>• {line[2:]}</p>')
-        else:
-            html_parts.append(f'<p>{line}</p>')
+            continue
+        
+        # 处理列表
+        if line.startswith('- ') or line.startswith('* '):
+            item = line[2:]
+            # 只处理行内加粗，链接保持 Markdown 格式绕过平台屏蔽
+            item = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', item)
+            html_parts.append(f'<p style="padding-left: 10px;">• {item}</p>')
+            continue
+        
+        # 处理普通段落 - 只转换加粗，链接保持 Markdown 格式
+        processed = line
+        processed = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', processed)
+        # 不转换链接，保持 [文字](URL) 格式
+        html_parts.append(f'<p>{processed}</p>')
     
     # 添加封面图作为首图（如果有）
     if cover_url:
@@ -323,8 +393,9 @@ def create_draft(access_token, title, thumb_media_id, author, content):
     
     try:
         opener = get_opener()
+        # 关键：确保 UTF-8 编码正确发送
         req_data = json.dumps(draft_data, ensure_ascii=False).encode('utf-8')
-        req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'})
+        req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json; charset=utf-8'})
         resp = opener.open(req, timeout=30)
         result = json.loads(resp.read().decode('utf-8'))
         
@@ -375,6 +446,8 @@ def main():
     # 上传封面图
     print("\n[2] 上传封面图...")
     cover_candidates = [
+        os.path.join(images_dir, "cover_upload.jpg"),  # 优先 JPG（更小）
+        os.path.join(images_dir, "cover.jpg"),
         os.path.join(images_dir, "cover.png"),
     ]
     
@@ -400,9 +473,13 @@ def main():
     print("\n[3] 上传正文配图...")
     image_urls = []
     
-    # 动态扫描 images_dir 中的所有 img_*.png 文件
+    # 动态扫描 images_dir 中的所有配图（优先 JPG）
     if os.path.exists(images_dir):
-        img_files = sorted([f for f in os.listdir(images_dir) if f.startswith("img_") and f.endswith(".png")])
+        # 优先 JPG 版本（*_upload.jpg）
+        img_files = sorted([f for f in os.listdir(images_dir) if f.endswith("_upload.jpg")])
+        if not img_files:
+            # 回退到 PNG
+            img_files = sorted([f for f in os.listdir(images_dir) if f.startswith("img_") and f.endswith(".png")])
         print(f"发现 {len(img_files)} 张配图: {', '.join(img_files)}")
         
         for img_file in img_files:

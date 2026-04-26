@@ -27,9 +27,9 @@ MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 try:
     with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
         _config = yaml.safe_load(f)
-    KB_ROOT = _config.get('paths', {}).get('kb_root', os.path.expanduser("~/backup/知识库-Obsidian"))
+    KB_ROOT = _config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
 except:
-    KB_ROOT = os.path.expanduser("~/backup/知识库-Obsidian")
+    KB_ROOT = os.path.expanduser("~/Documents/My_Obsidian")
 
 # 目录约定（自包含，不依赖其他技能模块）
 MCN_ROOT = KB_ROOT + "/mcn"
@@ -46,7 +46,9 @@ def call_llm_api(prompt: str) -> str:
         str: LLM 生成的文本，失败返回 None
     """
     
-    config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+    config_path = "/Users/hy_timesky/.hermes/mcn_config.yaml"
+    if not os.path.exists(config_path):
+        config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
     
@@ -96,7 +98,7 @@ def call_llm_api(prompt: str) -> str:
 
 # ==================== Workflow.json 锚点更新 ====================
 
-WORKFLOW_JSON = os.path.expanduser("/Users/hy_timesky/backup/知识库-Obsidian/mcn/workflow.json")
+WORKFLOW_JSON = os.path.join(KB_ROOT, "mcn/workflow.json")
 
 def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
     """更新 workflow.json 状态
@@ -472,6 +474,168 @@ def verify_word_count(content: str, min_words: int = 1500, max_words: int = 2000
     
     return result
 
+
+def load_source_article(topic: str) -> dict:
+    """加载原文数据（用于深度保持验证）
+    
+    Returns:
+        dict: 包含 source_content, source_length, source_platform
+    """
+    sources_file = os.path.join(MCN_ROOT, "sources/source_articles.json")
+    
+    if not os.path.exists(sources_file):
+        return None
+    
+    try:
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            sources = json.load(f)
+        
+        # 按标题匹配原文
+        for src in sources:
+            if topic in src.get('my_title', '') or src.get('my_title', '') in topic:
+                return {
+                    'source_content': src.get('source_content', ''),
+                    'source_length': src.get('source_length', 0),
+                    'source_platform': src.get('source_platform', ''),
+                    'source_url': src.get('source_url', '')
+                }
+        
+        return None
+    except Exception as e:
+        print(f"  ⚠️ 加载原文数据失败: {e}")
+        return None
+
+
+def verify_depth_preservation(content: str, source_length: int, min_ratio: float = 0.8) -> dict:
+    """深度保持验证 - 改写后字数 >= 原文80%
+    
+    Args:
+        content: 改写后的文章内容
+        source_length: 原文字数
+        min_ratio: 最小保留比例（默认80%）
+    
+    Returns:
+        dict: 验证结果
+    """
+    text_only = re.sub(r'[^\w]', '', content)
+    rewrite_length = len(text_only)
+    
+    required_length = int(source_length * min_ratio)
+    actual_ratio = rewrite_length / source_length if source_length > 0 else 1.0
+    
+    result = {
+        'rewrite_length': rewrite_length,
+        'source_length': source_length,
+        'required_length': required_length,
+        'actual_ratio': actual_ratio,
+        'min_ratio': min_ratio,
+        'status': 'unknown',
+        'message': '',
+        'action': ''
+    }
+    
+    if source_length <= 0:
+        result['status'] = 'no_source'
+        result['message'] = "无原文数据，跳过深度验证"
+        result['action'] = 'skip'
+    elif rewrite_length >= required_length:
+        result['status'] = 'valid'
+        result['message'] = f"深度保持合格：{rewrite_length}字 >= 原文{source_length}字的{min_ratio*100}%"
+        result['action'] = 'pass'
+    else:
+        result['status'] = 'insufficient'
+        shortage = required_length - rewrite_length
+        result['message'] = f"深度不足：{rewrite_length}字 < 原文{source_length}字的{min_ratio*100}%，需补充{shortage}字"
+        result['action'] = 'supplement'
+    
+    return result
+
+
+def extract_case_markers(source_content: str) -> list:
+    """从原文提取案例标记词
+    
+    Args:
+        source_content: 原文内容
+    
+    Returns:
+        list: 案例关键词列表
+    """
+    # 案例标记词模式
+    case_patterns = [
+        r'有一次[,，].{0,50}',  # "有一次，..."
+        r'[\u4e00-\u9fa5]+做了一个实验',  # "XXX做了一个实验"
+        r'[\u4e00-\u9fa5]+也有类似经历',  # "XXX也有类似经历"
+        r'据[\u4e00-\u9fa5]+了解',  # "据XXX了解"
+        r'[\u4e00-\u9fa5]+说[,，："\'"]',  # "XXX说："
+        r'例如[,，].{0,30}',  # "例如，..."
+        r'比如[,，].{0,30}',  # "比如，..."
+    ]
+    
+    markers = []
+    for pattern in case_patterns:
+        matches = re.findall(pattern, source_content)
+        markers.extend(matches[:2])  # 每种模式最多取2个
+    
+    # 提取具体人名/公司名案例
+    name_patterns = [
+        r'(Dan Shipper)',
+        r'(Pietro Schirano)',
+        r'(黄仁勋)',
+        r'(杨植麟)',
+        r'(梁文锋)',
+        r'(英伟达)',
+        r'(OpenAI)',
+        r'(月之暗面)',
+        r'(DeepSeek)',
+    ]
+    
+    for pattern in name_patterns:
+        if re.search(pattern, source_content):
+            markers.append(pattern.replace(r'(', '').replace(r')', ''))
+    
+    return markers[:10]  # 最多10个标记
+
+
+def verify_case_preservation(content: str, source_content: str) -> dict:
+    """案例保留验证
+    
+    Args:
+        content: 改写后的文章
+        source_content: 原文内容
+    
+    Returns:
+        dict: 验证结果
+    """
+    if not source_content:
+        return {'status': 'no_source', 'message': '无原文数据', 'missing_cases': []}
+    
+    case_markers = extract_case_markers(source_content)
+    
+    missing_cases = []
+    preserved_cases = []
+    
+    for marker in case_markers:
+        # 简化匹配：检查关键词是否出现
+        marker_clean = marker.replace(',', '').replace('，', '').strip()
+        if len(marker_clean) >= 3:  # 至少3个字符的关键词
+            if marker_clean in content:
+                preserved_cases.append(marker_clean)
+            else:
+                missing_cases.append(marker_clean)
+    
+    result = {
+        'status': 'valid' if len(missing_cases) <= 2 else 'insufficient',
+        'preserved_cases': preserved_cases,
+        'missing_cases': missing_cases,
+        'preservation_rate': len(preserved_cases) / len(case_markers) if case_markers else 1.0,
+        'message': f"案例保留率：{len(preserved_cases)}/{len(case_markers)}"
+    }
+    
+    if missing_cases:
+        result['message'] += f"，缺失：{', '.join(missing_cases[:5])}"
+    
+    return result
+
 def supplement_article(content: str, need_words: int, topic: str) -> str:
     """补充文章内容"""
     
@@ -529,7 +693,7 @@ def generate_article(topic: str, style: str = 'professional') -> dict:
     content = generate_article_content(topic, best['best_title'], style)
     
     # 4. 验证字数
-    print("\n[4/5] 验证字数...")
+    print("\n[4/7] 验证字数...")
     verify_result = verify_word_count(content)
     print(f"  {verify_result['message']}")
     
@@ -539,8 +703,32 @@ def generate_article(topic: str, style: str = 'professional') -> dict:
         verify_result = verify_word_count(content)
         print(f"  补充后：{verify_result['message']}")
     
-    # 5. 替换品牌名
-    print("\n[5/5] 替换品牌名...")
+    # 5. 深度保持验证
+    print("\n[5/7] 深度保持验证...")
+    source_data = load_source_article(topic)
+    
+    if source_data and source_data['source_length'] > 0:
+        depth_result = verify_depth_preservation(content, source_data['source_length'])
+        print(f"  {depth_result['message']}")
+        
+        if depth_result['status'] == 'insufficient':
+            print(f"  ⚠️ 深度不足，建议补充案例和数据支撑")
+    else:
+        print("  无原文数据，跳过深度验证")
+    
+    # 6. 案例保留验证
+    print("\n[6/7] 案例保留验证...")
+    if source_data and source_data['source_content']:
+        case_result = verify_case_preservation(content, source_data['source_content'])
+        print(f"  {case_result['message']}")
+        
+        if case_result['status'] == 'insufficient':
+            print(f"  ⚠️ 缺失重要案例：{', '.join(case_result['missing_cases'][:5])}")
+    else:
+        print("  无原文数据，跳过案例验证")
+    
+    # 7. 替换品牌名
+    print("\n[7/8] 替换品牌名...")
     content = replace_brand_names(content)
     print("✓ 品牌名已替换")
     
@@ -573,8 +761,8 @@ word_count: {verify_result['word_count']}
     print(f"  字数：{verify_result['word_count']}")
     print(f"  标题：{best['best_title']}")
     
-    # 6. 去 AI 化处理（调用 humanize-article.py）
-    print("\n[6/6] 去 AI 化处理...")
+    # 8. 去 AI 化处理（调用 humanize-article.py）
+    print("\n[8/8] 去 AI 化处理...")
     humanize_script = os.path.join(os.path.dirname(__file__), 'humanize-article.py')
     
     try:

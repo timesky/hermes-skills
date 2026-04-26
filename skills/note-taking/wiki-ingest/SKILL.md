@@ -308,7 +308,7 @@ def update_index_md(new_pages: List[dict]):
 from pathlib import Path
 import re
 
-KB_ROOT = Path("/Users/timesky/backup/知识库-Obsidian")
+KB_ROOT = Path("/Users/hy_timesky/Documents/My_Obsidian")
 RAW_DIR = KB_ROOT / "raw" / "sources"
 PROC_LOG = KB_ROOT / "wiki" / "processed.log"
 

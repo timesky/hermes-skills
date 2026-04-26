@@ -8,9 +8,9 @@ description: |
   可独立调用，也可被 my-mcn-manager 在阶段5调度。
 parent: my-mcn-manager
 tags: [mcn, wechat, publisher, draft, 微信公众号]
-version: 1.1.0
+version: 1.2.0
 created: 2026-04-15
-updated: 2026-04-21
+updated: 2026-04-25
 ---
 
 # MCN 微信公众号发布
@@ -112,15 +112,26 @@ publish:
 
 | 问题 | 原因 | 解决方案 |
 |------|------|----------|
-| **批量发布排版缺失** | 发布前未运行 `layout-article.py`，导致缺少尾部和首图 | **必须先排版**：`python layout-article.py --article ARTICLE --date DATE`，生成 `-layout.html` 文件后再发布 |
-| 封面永久素材累积 | thumb_media_id 必须是永久素材（API限制），但长期会累积无用素材 | 发布成功后调用 delete_permanent_material 删除封面素材 |
-| 配图URL失效 | 正文配图用 upload_content_image 返回的URL，是临时资源 | 正文配图已是临时资源，无需处理；封面图才需要清理 |
-| 图片上传失败 | 代理配置或网络问题 | 检查 publish.proxy 配置，确保代理可用 |
+| **标题45003报错** | `requests.post(json=...)` 对中文编码处理不当，微信API收到的标题字节超限 | **关键修复**：改用 `data=json_bytes` + `Content-Type: application/json; charset=utf-8`。已在脚本中修复（第341行） |
+| **图片上传代理失败** | 豆包生成图片命名 `.png` 但实际是 JPEG 格式，格式混乱导致代理上传断开 | 用 `sips -s format jpeg cover.png --out cover.jpg` 转换为正确格式后上传 |
+| **批量发布排版缺失** | 发布前未运行 `layout-article.py`，导致缺少尾部和首图 | **必须先排版**：`python layout-article.py --article ARTICLE --date DATE` |
+| **Markdown图片占位符残留** | 文章中 `![xxx](images/xxx.png)` 未被处理，当作普通文本输出到 HTML | **删除占位符**：脚本按固定位置（30%, 60%）插入图片，不处理 Markdown 占位符。发布前需删除文章中的所有图片占位符 |
+|| **Markdown格式未转换** | 表格、链接、分隔线等 Markdown 格式当作普通文本 | **脚本已修复**：v1.2.1+ 支持表格→HTML table、链接→`<a>`、分隔线→`<hr>`、行内加粗 |
+|| **PNG图片过大导致代理超时** | 豆包生成的 PNG 常常 >1MB，代理连接易超时 | **脚本已修复**：优先上传 JPG 版本 (`*_upload.jpg`)，回退 PNG |
+|| **Profile环境 `~` 路径展开错误** | Profile 模式下 `os.path.expanduser('~')` 指向错误 home 目录 | **脚本已修复**：使用绝对路径 `/Users/hy_timesky/.hermes/mcn_config.yaml` |
+|| **`config` 变量使用前未定义** | 多个脚本开头直接使用 `config.get()`，但 `config` 在后面才赋值 | **脚本已修复**：先设置默认值，再按条件加载配置 |
+|| 封面永久素材累积 | thumb_media_id 必须是永久素材（API限制） | 发布成功后调用 delete_permanent_material 删除封面素材 |
 | IP白名单未添加 | 在公众号后台添加服务器IP |
 | 代理配置错误 | 检查 `mcn_config.yaml` 中 `publish.proxy` |
-| 图片上传失败 | 检查图片路径是否正确（从文章路径提取） |
 | 封面尺寸不符 | 封面图需 900×500px |
-| **封面图命名** | 发布脚本要求封面图命名为 `cover.png`，配图生成脚本产出 `img_1.png` 等。需手动复制：`cp img_1.png cover.png`，或在配图生成时同时创建 cover.png |
+
+**最小修改原则（重要）**：
+用户要求只做必要修改时（如"去掉相关阅读"），不要：
+- 重新上传已上传的图片
+- 改动标题或其他内容
+- 引入不必要的新问题
+
+正确做法：只执行用户指定的最小必要修改。
 
 **排版流程一致性（重要）**：
 
@@ -153,4 +164,4 @@ layout-article.py → 生成 article-layout.html → publish-draft.py
 
 ---
 
-*Version: 1.1.0 - 添加批量发布排版流程一致性 pitfalls*
+*Version: 1.2.1 - 添加 PNG 上传超时、Profile 路径、config 变量陷阱 pitfalls*

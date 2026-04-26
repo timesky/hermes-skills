@@ -33,7 +33,25 @@ FEISHU_WEBHOOK = os.environ.get('FEISHU_WEBHOOK', '')
 FEISHU_CHAT_ID = os.environ.get('FEISHU_CHAT_ID', '')
 FEISHU_APP_ID = os.environ.get('FEISHU_APP_ID', '')
 FEISHU_APP_SECRET = os.environ.get('FEISHU_APP_SECRET', '')
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+
+# 从 mcn_config.yaml 读取路径（避免硬编码）
+def load_config_paths():
+    """从配置文件加载目录路径"""
+    try:
+        import yaml
+        config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                kb_root = config.get('paths', {}).get('kb_root', '')
+                if kb_root:
+                    return kb_root
+    except Exception:
+        pass
+    # fallback: 使用当前用户目录
+    return os.path.expanduser("~/Documents/My_Obsidian")
+
+KB_ROOT = load_config_paths()
 MCN_ROOT = KB_ROOT + "/mcn"
 TASKS_DIR = KB_ROOT + "/tmp/tasks"
 

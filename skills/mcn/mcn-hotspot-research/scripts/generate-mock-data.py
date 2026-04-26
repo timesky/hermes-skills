@@ -21,9 +21,10 @@ def generate_mock_hotspot(date=None):
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
     
-    # 从配置读取目录
-    kb_root = "/Users/timesky/backup/知识库-Obsidian"
+    # 从配置读取目录（先设置默认值）
+    kb_root = os.path.expanduser("~/Documents/My_Obsidian")
     config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+    config = None
     if os.path.exists(config_path):
         import yaml
         with open(config_path) as f:

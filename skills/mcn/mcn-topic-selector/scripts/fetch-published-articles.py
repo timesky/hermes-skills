@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-获取公众号已发布文章列表
+获取公众号已发布文章列表 - 支持代理
 
 用法:
     python fetch-published-articles.py
@@ -31,11 +31,17 @@ def load_env():
 load_env()
 
 # 加载配置
-config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
-with open(config_path, 'r', encoding='utf-8') as f:
-    config = yaml.safe_load(f)
+config_path = os.path.expanduser('/Users/hy_timesky/.hermes/mcn_config.yaml')
+if not os.path.exists(config_path):
+    config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
+if os.path.exists(config_path):
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+else:
+    config = {}
 
 publish_config = config.get('publish', {}).get('accounts', {}).get('main', {})
+PROXY = config.get('publish', {}).get('proxy', '')
 APPID = publish_config.get('appid', '')
 SECRET = publish_config.get('secret', '')
 
@@ -46,13 +52,28 @@ ctx.check_hostname = False
 ctx.verify_mode = ssl.CERT_NONE
 
 
+def get_opener():
+    """获取带有代理的 opener"""
+    if PROXY:
+        proxy_handler = urllib.request.ProxyHandler({
+            'http': PROXY,
+            'https': PROXY
+        })
+        opener = urllib.request.build_opener(proxy_handler, urllib.request.HTTPSHandler(context=ctx))
+        print(f"  使用代理: {PROXY.split('@')[1] if '@' in PROXY else PROXY}")
+        return opener
+    else:
+        return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
+
+
 def get_access_token():
     """获取公众号 access_token"""
     url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={APPID}&secret={SECRET}"
     
     try:
+        opener = get_opener()
         req = urllib.request.Request(url)
-        resp = urllib.request.urlopen(req, context=ctx, timeout=10)
+        resp = opener.open(req, timeout=10)
         result = json.loads(resp.read().decode('utf-8'))
         
         if 'access_token' in result:
@@ -78,7 +99,8 @@ def get_materials_list(access_token, offset=0, count=20):
     try:
         req_data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
         req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'})
-        resp = urllib.request.urlopen(req, context=ctx, timeout=30)
+        opener = get_opener()
+        resp = opener.open(req, timeout=30)
         result = json.loads(resp.read().decode('utf-8'))
         
         if 'item' in result:
@@ -147,7 +169,6 @@ def fetch_all_published_articles():
 
 def extract_keywords(title):
     """从标题提取关键词"""
-    # 简单分词：去掉标点，按2-4字分组
     import re
     
     # 去掉标点和特殊字符

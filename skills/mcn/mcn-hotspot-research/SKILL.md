@@ -70,7 +70,7 @@ updated: 2026-04-18
 ## 输出
 
 ```
-~/backup/知识库-Obsidian/mcn/hotspot/{日期}/
+~/Documents/My_Obsidian/mcn/hotspot/{日期}/
 ├── hotspot-weibo.json       # 微博热搜（50条）
 ├── hotspot-huxiu-tech.md    # 虎嗅科技文章
 ├── hotspot-huxiu-3c.md      # 虎嗅3C数码
@@ -147,7 +147,9 @@ my-mcn-manager 在阶段1调用：
 | Playwright 版本不匹配 - 软连接无效 | **问题**：创建软连接 `ln -s chromium-1217 chromium-1140` 后仍然报错。**原因**：Chromium 是完整应用包，内部路径硬编码，软连接无法欺骗。**解决方案**：修改脚本指定明确的 `executable_path`，或直接安装正确版本。 |
 | Firefox 页面导航失败 | **问题**：浏览器启动成功但 `page.goto()` 返回 "Target page, context or browser has been closed"。**原因**：Firefox 无头模式在某些 macOS 版本上不稳定。**解决方案**：增加重试逻辑，或直接使用模拟数据 fallback。 |
 | Firefox 版本不匹配 | **问题**：`BrowserType.launch: Executable doesn't exist at .../firefox-1466/...`。**原因**：Python playwright 期望的 Firefox 版本与缓存中的版本不一致（如期望 1466 但只有 1465）。**解决方案**：(1) 检查缓存：`ls ~/Library/Caches/ms-playwright/` 确认可用版本；(2) **优先改用 Chromium**：修改 `hotspot-playwright.py` 为 `p.chromium.launch()`；(3) 或安装匹配版本：`playwright install firefox`。 |
-| 部分数据源失败 | 正常现象。38 条热点（微博 3 条 +36kr 20 条 + 虎嗅 15 条）已足够选题分析。不要求所有源都成功。 |
+|| 部分数据源失败 | 正常现象。38 条热点（微博 3 条 +36kr 20 条 + 虎嗅 15 条）已足够选题分析。不要求所有源都成功。 |
+|| **Profile环境 `~` 路径展开错误** | Profile 模式下 `os.path.expanduser('~')` 指向错误 home 目录 | **脚本已修复**：使用绝对路径 `/Users/hy_timesky/.hermes/mcn_config.yaml` |
+|| **`config` 变量使用前未定义** | 脚本开头直接使用 `config.get()`，但 `config` 在后面才赋值 | **脚本已修复**：先设置默认值，再按条件加载配置 |
 
 ---
 
@@ -203,7 +205,7 @@ import json, os
 from datetime import datetime
 
 date = '2026-04-18'
-output_dir = '/Users/timesky/backup/知识库-Obsidian/mcn/hotspot/' + date
+output_dir = '/Users/hy_timesky/Documents/My_Obsidian/mcn/hotspot/' + date
 os.makedirs(output_dir, exist_ok=True)
 
 articles = [
@@ -233,4 +235,4 @@ with open(output_dir + '/hotspot.json', 'w') as f:
 
 ---
 
-*Version: 1.1.0 - 功能闭环 + 产出交付规范*
+*Version: 1.4.1 - 添加 Profile 路径、config 变量陷阱 pitfalls*

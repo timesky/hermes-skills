@@ -13,9 +13,12 @@ from difflib import SequenceMatcher
 from collections import Counter
 import math
 
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+# 默认目录
+KB_ROOT = os.path.expanduser("~/Documents/My_Obsidian")
 MCN_ROOT = f"{KB_ROOT}/mcn"
-MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
+MCN_CONFIG = os.path.expanduser("/Users/hy_timesky/.hermes/mcn_config.yaml")
+if not os.path.exists(MCN_CONFIG):
+    MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 PUBLISHED_FILE = os.path.expanduser("~/.hermes/mcn_published.json")
 
 # 从外部配置读取 KB_ROOT（可选）

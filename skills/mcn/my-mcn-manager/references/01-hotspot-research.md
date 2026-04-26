@@ -84,8 +84,13 @@ def fetch_hotspot(platform: str, limit: int = 20) -> list:
 ```python
 import datetime
 import os
+import yaml
 
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+# 从配置文件读取路径，配置项: ~/.hermes/mcn_config.yaml → paths.kb_root
+config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+with open(config_path, 'r') as f:
+    config = yaml.safe_load(f)
+KB_ROOT = config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
 HOTSPOT_DIR = f"{KB_ROOT}/tmp/hotspot"
 
 def save_hotspot(platform: str, data: list) -> str:

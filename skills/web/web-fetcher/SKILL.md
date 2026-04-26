@@ -1,10 +1,10 @@
 ---
 name: web-fetcher
-description: Chrome 扩展 + WebSocket 服务抓取网页内容并控制页面（填写表单、点击、API调用）。支持 Draft.js/React 编辑器，使用用户已登录的 Cookie。v2.1 新增 Agent Tab Group，独立页签分组不抢占用户活动页签。
+description: Chrome 扩展 + WebSocket 服务抓取网页内容并控制页面（填写表单、点击、API调用）。支持 Draft.js/React 编辑器，使用用户已登录的 Cookie。v2.4 新增公众号 Token 自动恢复（点击登录链接无需扫码），v2.1 Agent Tab Group 独立页签分组不抢占用户。
 tags: [web, scraping, chrome-extension, websocket, control, automation]
-version: 2.1.0
+version: 2.4.0
 created: 2026-04-11
-updated: 2026-04-20
+updated: 2026-04-26
 ---
 
 # Hermes Web Fetcher 扩展
@@ -233,6 +233,57 @@ if result.get('success'):
 - 后台抓取多个页面，不影响用户当前浏览
 - 自动化任务完成后关闭页签，保持浏览器整洁
 - 分组标题 "Hermes Agent"，紫色标识
+
+### 🆕 公众号 Token 自动恢复 (v2.4)
+
+**微信公众号 Token 自动恢复流程，无需扫码：**
+
+```
+1. create_agent_tab("https://mp.weixin.qq.com/cgi-bin/home?t=home/index&lang=zh_CN")
+2. 若显示"请重新登录" → click_element(tab_id, "#jumpUrl")
+3. 等待 5 秒 → URL 自动带 token → 进入首页
+4. 无需扫码！Token 已恢复
+```
+
+**验证要点：**
+- 点击登录链接后，URL 会自动带上 `token=***` 参数
+- HTML 关键词检测：`首页`、`草稿箱`、`图文消息`、`已发送` 表示成功
+- 如果页面显示二维码，说明 Token 已失效，需要用户扫码
+
+**示例代码：**
+
+```python
+async def ensure_wechat_login():
+    client = HermesWebFetcher()
+    await client.connect()
+    
+    # 创建公众号页签
+    tab = await client.create_agent_tab(
+        "https://mp.weixin.qq.com/cgi-bin/home?t=home/index&lang=zh_CN"
+    )
+    
+    await asyncio.sleep(3)
+    
+    # 检查是否需要登录
+    page_info = await client.get_page_info(tab['id'])
+    html_result = await client._send_request("Hermes.getHTML", {"tabId": tab['id']})
+    html = html_result.get('html', '')
+    
+    if "请重新登录" in html:
+        # 点击登录链接，Token 自动恢复
+        await client.click_element(tab['id'], "#jumpUrl")
+        await asyncio.sleep(5)
+        
+        # 验证是否成功
+        html_result = await client._send_request("Hermes.getHTML", {"tabId": tab['id']})
+        if any(kw in html_result.get('html', '') for kw in ['草稿箱', '图文消息']):
+            print("✅ Token 自动恢复成功，无需扫码")
+        else:
+            print("⚠️ 需要用户扫码登录")
+            await client.screenshot_to_file(tab['id'], "/tmp/wechat_qrcode.png")
+    
+    await client.disconnect()
+```
 
 **示例：**
 

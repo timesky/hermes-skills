@@ -102,19 +102,29 @@ COSINE_SIMILARITY_THRESHOLD = 0.35  # 35% 以上排除
 ## 输出
 
 ```
-~/backup/知识库-Obsidian/mcn/topic/{日期}/
-├── recommend.md    # Top 5 推荐主题
-├── excluded.md     # 已排除主题（含原因）
-└── analysis.json   # 详细分析数据
+~/Documents/My_Obsidian/mcn/topic/{日期}/
+├── recommend.md           # Top 5 推荐主题
+├── excluded.md            # 已排除主题（含原因）
+├── analysis.json          # 详细分析数据
+└── sources/               # 【新增】预抓取的原文+竞品数据
+    ├── topic-1/
+    │   ├── source.json    # 原文完整内容+数据
+    │   ├── source.html    # 原文HTML（备用）
+    │   └── competitors.json  # 竞品文章（top 5-10）
+    ├── topic-2/
+    └── ...
 
-~/backup/知识库-Obsidian/mcn/
-└── workflow.json   # ⚓ 锚点文件（跨会话衔接）
+~/Documents/My_Obsidian/mcn/
+└── workflow.json          # ⚓ 锚点文件（跨会话衔接）
 ```
 
-**⚠️ 锚点文件机制（新增）**：
+**⚠️ 预抓取机制（新增）**：
 
-选题分析完成后，自动写入 `mcn/workflow.json`，记录当前工作流状态。
-用于跨会话衔接：用户在新会话回复「选题X」时，读取此文件恢复上下文。
+选题推荐完成后，自动抓取 Top 5 选题的：
+1. **原文完整数据**：内容、作者、发布时间、阅读/点赞/收藏/转发数
+2. **竞品文章**：同话题高分文章（top 5-10），包含标题、数据、风格标签
+
+后续分析阶段直接读取本地文件，无需重复抓取。
 
 ---
 
@@ -122,11 +132,16 @@ COSINE_SIMILARITY_THRESHOLD = 0.35  # 35% 以上排除
 
 ```bash
 eval "$(pyenv init -)" && python3 ~/.hermes/skills/mcn/mcn-topic-selector/scripts/run-topic-analysis.py --date 2026-04-15
+
+# 可选：只抓取指定选题的原文
+python3 ~/.hermes/skills/mcn/mcn-topic-selector/scripts/fetch-source-data.py --topic 1 --date 2026-04-15
 ```
 
 **脚本目录**：`mcn-topic-selector/scripts/`
-- `run-topic-analysis.py` - 主脚本
+- `run-topic-analysis.py` - 主脚本（选题+预抓取）
+- `fetch-source-data.py` - 【新增】抓取原文+竞品数据
 - `fetch-published-articles.py` - 获取已发布文章列表
+- `update-published-list.py` - 更新已发布列表
 
 ---
 
@@ -159,6 +174,7 @@ eval "$(pyenv init -)" && python3 ~/.hermes/skills/mcn/mcn-topic-selector/script
 | 草稿未被排除 | 排重仅检查 `mcn_published.json`（已发布），草稿未发布不会被排除。**解决方案**：可选参数 `--check-drafts` 检查 `mcn/content/{date}/` 目录下已有草稿，避免重复选题 |
 | 热点数据URL重复 | 同一URL出现多条标题（36kr文章有主标题+副标题），导致选题列表重复。**解决方案**：`load_hotspot_data()` 已增加URL去重逻辑，优先读取JSON数据源，保留标题最完整的记录。验证：36条→21条（合并15条重复） |
 | publish_date 缺失导致排除失效 | 当文章 `publish_date` 和 `publish_time` 为空时，`'' >= cutoff_date` 返回 False，所有文章被过滤掉。**解决方案**：`check_topic_excluded()` 已修复，空日期文章默认纳入比较（不按日期过滤） |
+| 已发布文章 API 限制 | `fetch-published-articles.py` 调用微信 API 只能获取**素材管理**（草稿），无法获取已发布文章。`freepublish/batchget` API 需要**认证服务号权限**（返回 48001 未授权）。**解决方案**：已发布文章数据必须通过网页抓取获取（使用 `wechat-analytics` 技能 + web-fetcher 控制浏览器访问公众号后台） |
 
 ---
 

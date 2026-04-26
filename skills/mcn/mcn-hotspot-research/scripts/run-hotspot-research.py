@@ -19,12 +19,13 @@ import re
 from datetime import datetime
 
 
-# 目录约定（自包含，不依赖其他技能模块）
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+# 默认目录约定
+KB_ROOT = os.path.expanduser("~/Documents/My_Obsidian")
 MCN_ROOT = f"{KB_ROOT}/mcn"
 
-# 从外部配置读取 KB_ROOT（可选）
+# 从外部配置读取 KB_ROOT（优先）
 config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+config = None
 if os.path.exists(config_path):
     try:
         with open(config_path) as f:
@@ -32,8 +33,8 @@ if os.path.exists(config_path):
         kb_root = config.get("paths", {}).get("kb_root", KB_ROOT)
         KB_ROOT = kb_root
         MCN_ROOT = f"{KB_ROOT}/mcn"
-    except:
-        pass
+    except Exception as e:
+        print(f"Warning: Failed to load config: {e}")
 # 加载环境变量（terminal 不继承 Hermes 环境）
 def load_env():
     env_path = os.path.expanduser('~/.hermes/.env')
@@ -49,8 +50,7 @@ def load_env():
 load_env()
 
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
-MCN_ROOT = f"{KB_ROOT}/mcn"
+# 使用前面已定义的 KB_ROOT 和 MCN_ROOT
 
 def load_config():
     with open(MCN_CONFIG, 'r', encoding='utf-8') as f:

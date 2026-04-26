@@ -14,7 +14,7 @@ import argparse
 from datetime import datetime
 
 PUBLISHED_FILE = os.path.expanduser("~/.hermes/mcn_published.json")
-MCN_ROOT = "/Users/timesky/backup/知识库-Obsidian/mcn"
+MCN_ROOT = config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian")) + "/mcn"
 
 def load_published():
     if os.path.exists(PUBLISHED_FILE):

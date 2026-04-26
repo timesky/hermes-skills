@@ -221,10 +221,13 @@ image_generation:
 
 ---
 
-## 输出目录结构（已更新）
+## 输出目录结构
 
 ```
-~/backup/知识库-Obsidian/
+# 路径从 ~/.hermes/mcn_config.yaml 的 paths.kb_root 配置项读取
+# 默认值: ~/Documents/My_Obsidian
+
+{kb_root}/
 ├── mcn/                        # MCN 专用目录（不参与 wiki-ingest）
 │   ├── hotspot/YYYY-MM-DD/     # 热搜聚合数据
 │   ├── topic/YYYY-MM-DD/       # 选题分析报告

@@ -51,49 +51,40 @@ load_env()
 # 配置常量
 MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 
-# ==================== Workflow.json 锚点更新 ====================
-
-WORKFLOW_JSON = os.path.expanduser("/Users/hy_timesky/backup/知识库-Obsidian/mcn/workflow.json")
-
-def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
-    """更新 workflow.json 状态
-    
-    Args:
-        status: 新状态 (content_done, images_done, published)
-        topic_slug: 当前选题 slug（可选，用于更新 current_topic）
-        data_updates: 其他数据字段更新（可选）
-    """
-    try:
-        if not os.path.exists(WORKFLOW_JSON):
-            print(f"  ⚠️ workflow.json 不存在，跳过更新")
-            return
-        
-        with open(WORKFLOW_JSON, 'r', encoding='utf-8') as f:
-            workflow = json.load(f)
-        
-        workflow['status'] = status
-        workflow['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        if topic_slug:
-            workflow['current_topic'] = topic_slug
-        
-        if data_updates:
-            workflow.update(data_updates)
-        
-        with open(WORKFLOW_JSON, 'w', encoding='utf-8') as f:
-            json.dump(workflow, f, indent=2, ensure_ascii=False)
-        
-        print(f"  ✓ workflow.json 已更新: status={status}")
-        
-    except Exception as e:
-        print(f"  ⚠️ workflow.json 更新失败: {e}")
-
 def load_config():
     import yaml
     with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 _config = load_config()
+
+# 从配置读取 kb_root（必须在 WORKFLOW_JSON 之前）
+KB_ROOT = _config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
+MCN_ROOT = KB_ROOT + "/mcn"
+
+# ==================== Workflow.json 锚点更新 ====================
+WORKFLOW_JSON = os.path.join(KB_ROOT, "mcn/workflow.json")
+
+def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict = None):
+    """更新 workflow.json 状态"""
+    try:
+        if not os.path.exists(WORKFLOW_JSON):
+            print(f"  ⚠️ workflow.json 不存在，跳过更新")
+            return
+        with open(WORKFLOW_JSON, 'r', encoding='utf-8') as f:
+            workflow = json.load(f)
+        workflow['status'] = status
+        workflow['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if topic_slug:
+            workflow['current_topic'] = topic_slug
+        if data_updates:
+            workflow.update(data_updates)
+        with open(WORKFLOW_JSON, 'w', encoding='utf-8') as f:
+            json.dump(workflow, f, indent=2, ensure_ascii=False)
+        print(f"  ✓ workflow.json 已更新: status={status}")
+    except Exception as e:
+        print(f"  ⚠️ workflow.json 更新失败: {e}")
+
 _image_config = _config.get('image_generation', {})
 
 # 默认配置
@@ -115,9 +106,6 @@ GRSAI_MODEL = _grsai_config.get('models', {}).get(_grsai_config.get('default_mod
 # 轮询参数（仅 GrsAI）
 POLL_INTERVAL = 5
 MAX_POLL_COUNT = 60
-
-KB_ROOT = "/Users/hy_timesky/backup/知识库-Obsidian"
-MCN_ROOT = KB_ROOT + "/mcn"
 
 def slugify(text):
     import re

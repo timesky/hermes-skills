@@ -19,14 +19,14 @@ author: Luna
 ## 知识库路径
 
 ```
-KB_ROOT = /Users/timesky/backup/知识库-Obsidian
+KB_ROOT = /Users/hy_timesky/Documents/My_Obsidian
 ```
 
 ---
 
 ## 保存流程
 
-### 1. 生成文件名
+### 1. 生成文件名（含 session_id 冲突保护）
 
 ```python
 import datetime
@@ -34,8 +34,15 @@ import re
 
 date_str = datetime.datetime.now().strftime("%Y-%m-%d")
 slug = re.sub(r'[^\w\s-]', '', title).lower().replace(' ', '-')[:50]
-filename = f"tmp/{date_str}/{slug}.md"
+# 添加 session_id 前 8 位作为冲突保护
+session_suffix = session_id[:8] if session_id else "auto"
+filename = f"tmp/{date_str}/{slug}-{session_suffix}.md"
 ```
+
+**说明**：
+- 同一文章被不同 Profile 保存时，session_id 后缀区分来源
+- 例如：`quant-framework-comparison-4a2c1e3f.md` 和 `quant-framework-comparison-7b5d9e2a.md`
+- 后续整理时，相同 slug 的文件会合并处理
 
 ### 2. 抓取文章指标（重要！）
 
@@ -150,11 +157,12 @@ status: pending
 1. **必须抓取指标**：阅读/点赞/收藏是整理评估的关键依据
 2. **不要覆盖已存在文件**：先检查同名文件
 3. **按日期分目录**：不要使用 web/user 子目录
-4. **session_id 必须记录**：用于后续引用追踪
+4. **session_id 必须记录**：用于追踪来源，8 位短版本嵌入文件名防止冲突
 5. **指标无法获取时标记"未知"**：不要跳过指标字段
 6. **实际路径带日期子目录**：知乎文章保存在 `tmp/zhihu/YYYY-MM-DD/`，不是 `tmp/zhihu/`
 7. **脚本输出可能为空**：定时整理脚本可能返回空报告，需要手动 `search_files` 验证实际文件
 8. **patch 多行内容用直接调用**：不要在 execute_code 中用 patch 处理多行字符串，直接调用 patch 工具更可靠
+9. **多 Profile 冲突已解决**：文件名包含 session_id[:8]，不同 Profile 保存同一文章不会覆盖
 
 ---
 

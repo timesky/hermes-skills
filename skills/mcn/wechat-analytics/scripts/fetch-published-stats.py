@@ -50,7 +50,12 @@ async def check_login_and_account(client: HermesWebFetcher):
     result = await client.fetch_article(tab_id)
     content = result.get('content', '')
     
+    # 检测登录状态：页面应包含账号名或菜单项
     is_logged_in = '程序员的开发手册' in content or '设置与开发' in content
+    
+    # 更严格的检测：如果内容很短（<500字符），可能是未登录页面
+    if len(content) < 500:
+        is_logged_in = False
     
     if is_logged_in:
         account_match = re.search(r'程序员的开发手册', content)
@@ -63,21 +68,31 @@ async def check_login_and_account(client: HermesWebFetcher):
         print(f"   Token: {token}")
     else:
         print("❌ 未登录或 token 已过期")
+        print("   请手动打开 https://mp.weixin.qq.com 扫码登录")
         
-        screenshot_path = os.path.join(SCREENSHOT_DIR, f"login_qrcode_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-        os.makedirs(SCREENSHOT_DIR, exist_ok=True)
-        
-        try:
-            result = await client.screenshot_to_file(tab_id, screenshot_path)
-            print(f"📸 二维码截图已保存: {screenshot_path}")
-            print("   请扫码登录后重新运行脚本")
-        except Exception as e:
-            print(f"⚠️ 截屏失败: {e}")
-            print("   请手动打开 https://mp.weixin.qq.com 扫码登录")
+        # 发送飞书文字通知
+        notify_login_expired()
     
     await client.close_agent_tab(tab_id)
     
     return is_logged_in, account_name if is_logged_in else None, token if is_logged_in else None
+
+
+def notify_login_expired():
+    """发送飞书通知：公众号登录已过期"""
+    import requests
+    
+    # Hermes 飞书通知 API（通过本地 gateway）
+    try:
+        gateway_url = "http://localhost:18789/api/notify"
+        payload = {
+            "platform": "feishu",
+            "message": "⚠️ 公众号登录已过期\n请打开 https://mp.weixin.qq.com 扫码登录，登录后重新执行数据分析。"
+        }
+        requests.post(gateway_url, json=payload, timeout=5)
+        print("   📤 已发送飞书通知")
+    except Exception as e:
+        print(f"   ⚠️ 飞书通知失败: {e}")
 
 
 async def fetch_all_stats(client: HermesWebFetcher, token: str):

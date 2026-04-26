@@ -161,8 +161,12 @@ mcn/
 ### 路径拼接规则
 
 ```python
-# 每个脚本内联此逻辑，不依赖共享模块
-KB_ROOT = "/Users/timesky/backup/知识库-Obsidian"
+# 每个脚本从配置文件读取 KB_ROOT，配置文件路径: ~/.hermes/mcn_config.yaml
+# 配置项: paths.kb_root
+import yaml
+with open(os.path.expanduser("~/.hermes/mcn_config.yaml"), 'r') as f:
+    config = yaml.safe_load(f)
+KB_ROOT = config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
 MCN_ROOT = KB_ROOT + "/mcn"
 
 def slugify(text):
@@ -198,15 +202,15 @@ images_dir = f"{MCN_ROOT}/content/{date}/{slugify(topic)}/images"
 article_file = f"{MCN_ROOT}/content/{date}/{slugify(topic)}/article.md"
 ```
 
-### 从外部配置读取 KB_ROOT（可选覆盖）
+### 从外部配置读取 KB_ROOT
 
 ```yaml
 # ~/.hermes/mcn_config.yaml
 paths:
-  kb_root: /Users/timesky/backup/知识库-Obsidian
+  kb_root: /Users/YOUR_NAME/Documents/My_Obsidian  # 知识库根目录
 ```
 
-脚本可读取此配置覆盖默认 KB_ROOT，但目录结构约定不变。
+所有脚本从 `~/.hermes/mcn_config.yaml` 的 `paths.kb_root` 配置项读取路径，回退默认值为 `~/Documents/My_Obsidian`。
 
 ---
 

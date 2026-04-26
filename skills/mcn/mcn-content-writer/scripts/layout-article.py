@@ -22,14 +22,20 @@ import yaml
 from datetime import datetime
 
 # 配置
-MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
-KB_ROOT = "/Users/hy_timesky/backup/知识库-Obsidian"
-MCN_ROOT = KB_ROOT + "/mcn"
+MCN_CONFIG = "/Users/hy_timesky/.hermes/mcn_config.yaml"
+if not os.path.exists(MCN_CONFIG):
+    MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
 
 def load_config():
     """加载配置"""
-    with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
+    if os.path.exists(MCN_CONFIG):
+        with open(MCN_CONFIG, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f)
+    return {}
+
+config = load_config()
+KB_ROOT = config.get('paths', {}).get('kb_root', os.path.expanduser("~/Documents/My_Obsidian"))
+MCN_ROOT = KB_ROOT + "/mcn"
 
 def slugify(text: str) -> str:
     """将文本转换为目录名安全的 slug"""
@@ -43,13 +49,13 @@ def slugify(text: str) -> str:
 def generate_titles(topic: str) -> list:
     """生成 5 个候选标题"""
     
-    # 标题公式（避免模板化）
+    # 标题公式（情绪词 + 疑问句 + 数字，避免模板化）
     formulas = [
-        ("具体数据 + 结果", f"{topic}：数据揭示了什么"),
-        ("争议观点 + 反转", f"{topic}：事实和想象差距有多大"),
-        ("问题 + 深度分析", f"{topic}火了，但争议背后是什么"),
-        ("对比 + 引发思考", f"同样是讨论{topic}，为何观点天差地别"),
-        ("热点 + 个人看法", f"关于{topic}，我想说几句"),
+        ("痛点钩子 + 疑问", f"{topic}出问题了？这个坑你踩过吗"),
+        ("情绪词 + 反问", f"{topic}火了，但为什么我有点担心"),
+        ("数字 + 结果", f"{topic}：3个关键数据，告诉你真相"),
+        ("争议 + 反转", f"{topic}引发争议，但事实和你想的不一样"),
+        ("对比 + 冲突", f"别人都在聊{topic}，我却看到了另一个问题"),
     ]
     
     titles = []
@@ -88,12 +94,19 @@ def evaluate_title(title_info: dict, topic: str) -> dict:
             score -= 15
             reasons.append(f"含模板词'{word}'（扣分）")
     
-    # 3. 加分个性化元素
-    unique_words = ['数据', '争议', '差距', '反转', '天差地别', '我想说', '看法']
+    # 3. 加分个性化元素（真正的钩子词）
+    unique_words = ['争议', '反转', '差距', '天差地别', '我想说', '看法', '坑', '踩过', '失败', '总', '为什么', '如何', '真的']
     for word in unique_words:
         if word in title:
             score += 15
             reasons.append(f"含个性化词'{word}'（加分）")
+    
+    # 4. 扣分模板化副标题（数据揭示了什么、什么值得注意等）
+    template_subtitles = ['数据揭示了什么', '什么值得注意', '背后是什么', '到底怎么回事']
+    for phrase in template_subtitles:
+        if phrase in title:
+            score -= 20
+            reasons.append(f"含模板副标题'{phrase}'（扣分）")
     
     # 3. 数字元素
     if re.search(r'\d+', title):
