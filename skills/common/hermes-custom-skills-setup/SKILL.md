@@ -1,16 +1,16 @@
 ---
 name: hermes-custom-skills-setup
-description: Hermes 自建技能管理架构 - 软连接整个 skills 目录到 Git 仓库，实现修改自动同步和版本控制
-version: 1.0.0
+description: Hermes 自建技能管理架构 - 按 Profile 分离技能目录（common/mcn/stock/third-party），实现职责清晰和版本控制
+version: 3.0.0
 author: Luna
 category: common
 ---
 
 # Hermes 自建技能管理架构
 
-## 核心思路（v2.0 - external_dirs 方案）
+## 核心思路（v3.0 - Profile 分离目录）
 
-使用官方 `external_dirs` 配置共享技能，Git 仓库只保留自建技能。
+使用官方 `external_dirs` 配置，按 Profile 分离技能目录：
 
 ```
 ~/.hermes/skills/           # Bundled skills（官方管理）
@@ -21,23 +21,41 @@ category: common
 
 Git 仓库 (external_dirs):   # 自建技能（Git 版本控制）
 /Users/hy_timesky/backup/hermes_agent_bak/hermes-skills/skills/
-├── mcn/                    # 12个技能
-├── stock/                  # 6个技能
-├── content/                # 4个技能
-├── devops/                 # 2个技能
-├── note-taking/            # 2个技能
-└── web/                    # 1个技能
-
-各 Profile 通过 external_dirs 配置共享 Git 仓库技能
+├── common/                 # 公共技能（所有Profile共享）
+│   ├── web-fetcher/
+│   ├── hermes-backup/
+│   ├── hermes-custom-skills-setup/
+│   ├── wiki-auto-save/
+│   └── wiki-ingest/
+├── mcn/                    # MCN 专用技能
+│   ├── my-mcn-manager/
+│   ├── mcn-content-writer/
+│   ├── humanizer-zh/
+│   ├── ai-image-generation/
+│   └── ...（15个）
+├── stock/                  # Stock 专用技能
+│   ├── autonomous-trading/
+│   ├── bear-market-strategy/
+│   └── ...（6个）
+└── third-party/            # 第三方技能（预留）
 ```
+
+## 各 Profile external_dirs 配置
+
+| Profile | external_dirs | 说明 |
+|---------|---------------|------|
+| **default** | common + third-party | 仅公共技能 |
+| **mcn** | common + mcn + third-party | 公共 + MCN专用 |
+| **stock** | common + stock + third-party | 公共 + Stock专用 |
+| **code** | common + third-party | 仅公共技能 |
 
 ## 好处
 
-1. **官方原生支持**：Hermes v0.13.0+ 的 external_dirs 机制
-2. **职责分离**：Bundled skills 官方管理，自建技能 Git 管理
-3. **多 Profile 共享**：一次更新，所有 Profile 自动同步
-4. **Curator 安全**：external_dirs 技能不会被 curator 治理
-5. **Git 干净**：不再需要复杂的 .gitignore 排除官方技能
+1. **Profile 隔离**：各 Profile 只加载需要的技能，职责清晰
+2. **公共共享**：common 目录一次更新，所有 Profile 同步
+3. **专用独立**：mcn/stock 专用技能不污染其他 Profile
+4. **第三方预留**：third-party 目录存放外部技能
+5. **官方原生支持**：Hermes v0.13.0+ 的 external_dirs 机制
 
 ---
 
@@ -138,38 +156,50 @@ git push origin master
 
 ---
 
-## 自建技能列表（v2.0）
+## 自建技能列表（v3.0 - 按 Profile 分离）
 
-| 分类 | 技能 | 说明 |
-|------|------|------|
-| **mcn** | my-mcn-manager | MCN 工作流总引导 |
-| **mcn** | mcn-content-writer | 内容生成 |
-| **mcn** | mcn-hotspot-research | 热点调研 |
-| **mcn** | mcn-topic-selector | 选题分析 |
-| **mcn** | mcn-wechat-publisher | 公众号发布 |
-| **mcn** | mcn-zhihu-publisher | 知乎发布 |
-| **mcn** | mcn-closed-loop-analysis | 闭环反馈分析 |
-| **mcn** | mcn-feishu-push | 飞书推送 |
-| **mcn** | mcn-workflow-fallback | 工作流降级 |
-| **mcn** | mcn-multi-platform | 多平台分发 |
-| **mcn** | wechat-analytics | 公众号数据分析 |
-| **mcn** | wechat-analytics-browser | Browser 方式数据分析 |
-| **stock** | autonomous-trading | 自动交易系统 |
-| **stock** | bear-market-strategy | 空头市场策略 |
-| **stock** | portfolio-strategy-combination | 组合策略 |
-| **stock** | risk-monitoring-system | 风控系统 |
-| **stock** | financial-cache-operations | 金融缓存操作 |
-| **stock** | strategy-auto-test | 策略自动测试 |
-| **content** | humanizer-zh | 去除 AI 写作痕迹 |
-| **content** | ai-image-generation | AI 图片生成 |
-| **content** | zhihu-favorites-sync | 知乎收藏夹同步 |
-| **devops** | hermes-backup | Hermes 备份恢复 |
-| **devops** | hermes-custom-skills-setup | 技能管理架构 |
-| **note-taking** | wiki-auto-save | 知识库自动保存 |
-| **note-taking** | wiki-ingest | 增量式 ingest |
-| **web** | web-fetcher | Web 抓取扩展 |
+### 公共技能（common/）- 5个
 
-**总计**：27个自建技能（mcn:12, stock:6, content:3, devops:2, note-taking:2, web:1）
+| 技能 | 说明 | 所有 Profile 共享 |
+|------|------|------------------|
+| web-fetcher | Web 抓取扩展 | ✓ |
+| hermes-backup | Hermes 备份恢复 | ✓ |
+| hermes-custom-skills-setup | 技能管理架构 | ✓ |
+| wiki-auto-save | 知识库自动保存 | ✓ |
+| wiki-ingest | 增量式 ingest | ✓ |
+
+### MCN 专用技能（mcn/）- 15个
+
+| 技能 | 说明 |
+|------|------|
+| my-mcn-manager | MCN 工作流总引导 |
+| mcn-content-writer | 内容生成 |
+| mcn-hotspot-research | 热点调研 |
+| mcn-topic-selector | 选题分析 |
+| mcn-wechat-publisher | 公众号发布 |
+| mcn-zhihu-publisher | 知乎发布 |
+| mcn-closed-loop-analysis | 闭环反馈分析 |
+| mcn-feishu-push | 飞书推送 |
+| mcn-workflow-fallback | 工作流降级 |
+| mcn-multi-platform | 多平台分发 |
+| wechat-analytics | 公众号数据分析 |
+| wechat-analytics-browser | Browser 方式数据分析 |
+| humanizer-zh | 去除 AI 写作痕迹 |
+| ai-image-generation | AI 图片生成 |
+| zhihu-favorites-sync | 知乎收藏夹同步 |
+
+### Stock 专用技能（stock/）- 6个
+
+| 技能 | 说明 |
+|------|------|
+| autonomous-trading | 自动交易系统 |
+| bear-market-strategy | 空头市场策略 |
+| portfolio-strategy-combination | 组合策略 |
+| risk-monitoring-system | 风控系统 |
+| financial-cache-operations | 金融缓存操作 |
+| strategy-auto-test | 策略自动测试 |
+
+**总计**：26个自建技能（common:5, mcn:15, stock:6）
 
 ---
 
@@ -345,14 +375,54 @@ hermes gateway restart
 hermes skills list | grep -E "mcn|stock|web-fetcher"
 ```
 
+### 7. 技能 category 字段必须与目录匹配
+
+v3.0 后技能 category 必须与所在目录匹配：
+
+```yaml
+# common/web-fetcher/SKILL.md
+category: common
+
+# mcn/humanizer-zh/SKILL.md
+category: mcn
+
+# stock/autonomous-trading/SKILL.md
+category: stock
+```
+
+### 8. 新建技能需确认归属目录
+
+创建新技能时需确定归属：
+
+| 技能类型 | 归属目录 | 可见 Profile |
+|----------|----------|--------------|
+| 所有 Profile 共享 | common/ | default, mcn, stock, code |
+| MCN 专用 | mcn/ | 仅 mcn |
+| Stock 专用 | stock/ | 仅 stock |
+| 第三方 | third-party/ | 需配置的 Profile |
+
+### 9. default Profile 不含专用技能
+
+default 和 code Profile 只有 common + third-party，无专用技能：
+
+```bash
+# 验证 default 不含 mcn/stock 专用技能
+hermes skills list | grep -E "mcn-content|autonomous-trading"
+# 应为 0 个匹配
+```
+
 ---
 
-## 相关文件（v2.0）
+## 相关文件（v3.0）
 
 - Git 仓库：`/Users/hy_timesky/backup/hermes_agent_bak/hermes-skills/skills/`
 - Bundled skills：`~/.hermes/skills/`（24个官方分类）
 - external_dirs 配置：各 Profile 的 `config.yaml`
-- 备份目录：`~/.hermes/backup_skills/`
+  - default: `common/ + third-party/`
+  - mcn: `common/ + mcn/ + third-party/`
+  - stock: `common/ + stock/ + third-party/`
+  - code: `common/ + third-party/`
+- 备份目录：`~/.hermes/backup_skills_v3/`
 - GitHub：`git@github.com:timesky/hermes-skills.git`
 
 ---
@@ -362,10 +432,12 @@ hermes skills list | grep -E "mcn|stock|web-fetcher"
 | 版本 | 日期 | 方案 | 说明 |
 |------|------|------|------|
 | v1.0 | 2026-04-13 | Symlink 整体方案 | `~/.hermes/skills` symlink 到 Git 仓库 |
-| v2.0 | 2026-05-10 | **external_dirs 方案** | Bundled skills + Git 仓库分离，官方原生支持 |
+| v2.0 | 2026-05-10 | external_dirs 方案 | Bundled skills + Git 仓库分离，官方原生支持 |
+| v3.0 | 2026-05-10 | **Profile 分离目录** | 按 common/mcn/stock/third-party 分离，各 Profile 独立配置 |
 
 ---
 
 *Created: 2026-04-13 by Luna*  
 *Updated: 2026-04-30 - 添加官方 Overlay 方案调研、Profile 隔离架构*  
-*Updated: 2026-05-10 - v2.0 架构重构，切换到 external_dirs 方案*
+*Updated: 2026-05-10 - v2.0 架构重构，切换到 external_dirs 方案*  
+*Updated: 2026-05-10 - v3.0 架构重构，按 Profile 分离技能目录*
