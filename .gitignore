@@ -9,5 +9,8 @@ skills/.usage.json.lock
 skills/.bundled_manifest
 skills/.curator_state
 
-# node_modules（web-fetcher）
-skills/web/web-fetcher/server/node_modules/
+# node_modules
+skills/common/web-fetcher/server/node_modules/
+
+# 临时工作区
+**/wiki-ingest-workspace/

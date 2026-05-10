@@ -3,7 +3,7 @@ name: hermes-custom-skills-setup
 description: Hermes 自建技能管理架构 - 软连接整个 skills 目录到 Git 仓库，实现修改自动同步和版本控制
 version: 1.0.0
 author: Luna
-category: devops
+category: common
 ---
 
 # Hermes 自建技能管理架构
@@ -190,7 +190,7 @@ name: <skill-name>
 description: ...
 version: 1.0.0
 author: Luna
-category: <category>
+category: common
 ---
 
 # 技能内容...
