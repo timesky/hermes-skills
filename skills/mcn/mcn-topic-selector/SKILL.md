@@ -1,189 +1,239 @@
 ---
 name: mcn-topic-selector
-description: |
-  MCN 选题分析技能 - 分析热点数据，推荐选题，排除已发布内容。
-  
-  触发词：选题分析、选题推荐、热点选题、mcn选题
-  
-  可独立调用，也可被 my-mcn-manager 在阶段2调度。
-parent: my-mcn-manager
-tags: [mcn, topic, selector, analysis, recommendation]
-version: 1.1.0
-created: 2026-04-15
-updated: 2026-04-15
+description: MCN选题分析 - 分析热点推荐Top5选题，排除已发布主题，生成选题报告。v2.0 增加类型加分（吐槽/避坑+50）和减分项（系列文-20）。
+version: 2.0.0
+created: 2026-04-27
+updated: 2026-05-01
+triggers:
+  - 选题分析
+  - mcn选题
+  - 推荐选题
+  - topic recommend
 ---
 
-# MCN 选题分析
+# MCN 选题分析技能
 
-分析热点数据，推荐 Top 5 选题，排除已发布内容（相似度比较）。
-
----
-
-## 功能闭环与产出交付
-
-**职责**：独立完成选题分析阶段所有工作。
-
-| 项目 | 说明 |
-|------|------|
-| 输入 | `--date {日期}`（从约定位置读取热点数据） |
-| 输入位置 | `mcn/hotspot/{date}/`（上游产出） |
-| 产出位置 | `mcn/topic/{date}/recommend.md` |
-| 状态返回 | `{"status": "success", "output_path": "...", "date": "..."}` |
-
-**衔接机制**：
-- 上游技能 `mcn-hotspot-research` 产出到约定位置
-- 本技能从约定位置读取，不需要参数传递
-- 下游用户选择选题后，传递给 `mcn-content-writer`
+基于热点数据生成选题推荐报告。
 
 ---
 
-## 配置来源
+## 输入
 
-**约定优于配置 + 技能独立性**
+**⚠️ 优先级：推送内容 > 本地文件**
 
-- 配置文件：`~/.hermes/mcn_config.yaml`（唯一外部依赖）
-- 目录约定：脚本内联解析，不依赖其他技能模块
-- 输入目录：`mcn/hotspot/{date}/`
-- 输出目录：`mcn/topic/{date}/`
+用户回复"选题 n"时的正确做法：
 
-脚本不导入其他技能目录下的模块。详见入口技能 `references/config.md`。
+### 1. 优先从 Cronjob Response 提取（最高优先级）
+
+如果用户刚收到飞书推送的 Cronjob Response，**直接从推送内容提取选题信息**：
+
+```
+Cronjob Response: MCN热点调研（每日三次）
+日期: 2026-05-07
+[1] "湖北惊现人造毒大米"系AI生成
+    热搜指数: 6857833 | 排名: 第 12 位
+    简介: 网传视频系AI生成...
+[2] AI机器人和尚现身韩国寺庙受戒
+...
+```
+
+**不要去读本地文件**！推送内容已经包含完整选题信息。
+
+### 2. 本地文件（备用）
+
+- 热点数据：`/Users/hy_timesky/Documents/My_Obsidian/mcn/hotspot/{date}/hotspots.json`
+- 选题报告：`/Users/hy_timesky/Documents/My_Obsidian/mcn/topic/{date}/recommend.md`
+
+**⚠️ 日期必须从推送获取，不能用"最新日期"**
+
+错误示例：推送日期是 05-07，但我去读 05-09 的文件 → 内容完全不一致！
+
+**正确做法**：
+1. 检查推送中的日期字段（如 `日期: 2026-05-07`）
+2. 用该日期去读对应文件（如果推送内容不完整）
+3. **禁止用"最新日期"逻辑覆盖推送日期**
 
 ---
 
-## 触发场景
+## 工作流程
 
-| 用户输入 | 响应 |
-|----------|------|
-| "选题分析" | 分析今日热点并推荐 |
-| "选题推荐" | 推荐可选主题 |
-| "热点选题" | 从热点中选主题 |
-
----
-
-## 核心功能
-
-### 1. 加载热点数据
-
-从约定位置读取：`mcn/hotspot/{date}/hotspot-aggregated.md`
-
-### 2. 排除已发布内容
-
-使用**余弦相似度**（字符级分词 + 技术词匹配）：
+### Step 1: 加载热点数据（确保日期正确）
 
 ```python
-# 余弦相似度阈值
-COSINE_SIMILARITY_THRESHOLD = 0.35  # 35% 以上排除
+import os
+import json
+from datetime import datetime
 
-# 分词方式：字符级 + 技术词库
-- 字符级拆分（中文字符）
-- 技术词匹配（AI、机器人、芯片、算力等）
+# 1. 先列出所有日期目录
+kb_root = '/Users/hy_timesky/Documents/My_Obsidian'
+hotspot_dir = os.path.join(kb_root, 'mcn/hotspot')
 
-# 检查方式
-余弦相似度 >= 35% → 排除
+# 2. 获取所有日期并排序（选最新）
+dates = sorted([d for d in os.listdir(hotspot_dir) 
+                if os.path.isdir(os.path.join(hotspot_dir, d))])
+latest_date = dates[-1]  # 最新日期，不是 dates[0]！
+
+# 3. 加载最新数据
+hotspot_file = os.path.join(hotspot_dir, latest_date, 'hotspots.json')
+with open(hotspot_file) as f:
+    hotspots = json.load(f)
+
+print(f"使用日期: {latest_date}")  # 告知用户确认日期正确
 ```
 
-**排除列表格式**（完整记录）：
-| 新话题标题 | 相似标题 | 相似度 | 原因 |
-|------------|----------|--------|------|
-| 具身模型Scaling Law... | 高德首款具身机器人 | **35.6%** | 余弦相似 |
-| | 宇树机器人 | 29.2% | 次相似 |
+### Step 2: 过滤排除主题
 
-### 3. 推荐评分
+读取 `mcn_config.yaml` 中的 `exclude_published.keywords`，排除近30天已发布主题。
 
-| 评分因素 | 权重 |
-|----------|------|
-| 热度值 | 40% |
-| 领域相关性 | 30% |
-| 发布优先级 | 20% |
-| 内容可操作性 | 10% |
+### Step 3: 计算评分
+
+**⚠️ v2.0 评分公式（基于历史数据优化）**
+
+```python
+基础分 = 50
+
+# 1. 热度加分
+热度/100万 = x
+if x > 8: +20
+elif x > 6: +15
+elif x > 4: +10
+
+# 2. 领域加分
+AI/编程/科技/机器人：+10
+
+# 3. 【新增】类型加分（权重最高，基于历史数据）
+吐槽/避坑/踩坑/错误/后悔：+50  # 历史 TOP 阅读类型
+教程/实践/解决/方法/技巧：+30
+
+# 4. 【新增】减分项
+与已发布标题相似度>0.7：-30
+标题含"系列"且已有同类：-20  # 避免读者疲劳
+
+# 5. 【新增】标题钩子加分
+含数字 + 含疑问句：+15
+含情绪词(终于/竟然/没想到/后悔)：+10
+```
+
+**评分优先级**：类型加分 > 领域加分 > 热度加分
+
+### Step 4: 生成报告
+
+输出格式：
+
+```markdown
+# 选题推荐报告 - {日期}
+
+## 关注领域
+科技、编程、AI应用、机器人
+
+## Top 5 推荐
+
+| 排名 | 标题 | 领域 | 热度 | 评分 | 链接 |
+|------|------|------|------|------|------|
+| 1 | DeepSeek V4背后，梁文锋的转身 | AI应用 | 8M | 85 | [查看](url) |
+| 2 | 天下苦Token久矣，DeepSeekV4终于来了 | AI应用 | 8M | 85 | [查看](url) |
+...
+
+## 数据来源
+- 百度热搜：X 条
+- 36氪 AI：X 条
+- 36氪 科技：X 条
+- 掘金：X 条
 
 ---
-
-## 输出
-
-```
-~/Documents/My_Obsidian/mcn/topic/{日期}/
-├── recommend.md           # Top 5 推荐主题
-├── excluded.md            # 已排除主题（含原因）
-├── analysis.json          # 详细分析数据
-└── sources/               # 【新增】预抓取的原文+竞品数据
-    ├── topic-1/
-    │   ├── source.json    # 原文完整内容+数据
-    │   ├── source.html    # 原文HTML（备用）
-    │   └── competitors.json  # 竞品文章（top 5-10）
-    ├── topic-2/
-    └── ...
-
-~/Documents/My_Obsidian/mcn/
-└── workflow.json          # ⚓ 锚点文件（跨会话衔接）
+生成时间: {timestamp}
 ```
 
-**⚠️ 预抓取机制（新增）**：
-
-选题推荐完成后，自动抓取 Top 5 选题的：
-1. **原文完整数据**：内容、作者、发布时间、阅读/点赞/收藏/转发数
-2. **竞品文章**：同话题高分文章（top 5-10），包含标题、数据、风格标签
-
-后续分析阶段直接读取本地文件，无需重复抓取。
-
----
-
-## Terminal 执行
+### Step 5: 保存报告
 
 ```bash
-eval "$(pyenv init -)" && python3 ~/.hermes/skills/mcn/mcn-topic-selector/scripts/run-topic-analysis.py --date 2026-04-15
-
-# 可选：只抓取指定选题的原文
-python3 ~/.hermes/skills/mcn/mcn-topic-selector/scripts/fetch-source-data.py --topic 1 --date 2026-04-15
-```
-
-**脚本目录**：`mcn-topic-selector/scripts/`
-- `run-topic-analysis.py` - 主脚本（选题+预抓取）
-- `fetch-source-data.py` - 【新增】抓取原文+竞品数据
-- `fetch-published-articles.py` - 获取已发布文章列表
-- `update-published-list.py` - 更新已发布列表
-
----
-
-## 已发布文章列表
-
-位置：`~/.hermes/mcn_published.json`
-
-格式：
-```json
-[
-  {
-    "title": "文章标题",
-    "publish_date": "2026-04-15",
-    "keywords": ["关键词1", "关键词2"]
-  }
-]
+/Users/hy_timesky/Documents/My_Obsidian/mcn/topic/{date}/recommend.md
 ```
 
 ---
 
-## Pitfalls
+## 关键词权重（v2.0 更新）
 
-| 问题 | 解决方案 |
+### 类型关键词（最高优先级）
+
+| 关键词 | 额外加分 | 说明 |
+|--------|----------|------|
+| 吐槽/避坑/踩坑 | +50 | 历史 TOP 阅读类型 |
+| 错误/后悔/教训 | +50 | 高阅读情绪词 |
+| 教程/实践/技巧 | +30 | 干货类 |
+| 解决/方法/办法 | +30 | 问题解决类 |
+
+### 领域关键词
+
+| 关键词 | 额外加分 |
+|--------|----------|
+| DeepSeek | +10 |
+| 大模型 | +8 |
+| 芯片 | +7 |
+| 开源 | +5 |
+| 机器人 | +5 |
+
+### 标题钩子
+
+| 特征 | 额外加分 |
 |------|----------|
-| 排除不生效 | 1. 检查 mcn_published.json 是否更新；2. 关键词提取改用核心实体词拆分（而非连续子串）；3. 降低 KEYWORD_OVERLAP_THRESHOLD=1 |
-| 相似度误判 | 调整 SIMILARITY_THRESHOLD（默认0.5）；语义相似度阈值降低到0.5 |
-| 评分显示0.0 | 可能是热度数据缺失（N/A）导致评分计算失败。检查热点数据是否有 `heat_score` 字段；领域匹配失败时评分权重分配异常 |
-| 热点数据缺失 | 先执行 mcn-hotspot-research |
-| 话题排除但用户仍选 | 用户可能远程操作，排除逻辑需验证；核心实体词匹配要覆盖常见词（机器人、AI、芯片等） |
-| 草稿未被排除 | 排重仅检查 `mcn_published.json`（已发布），草稿未发布不会被排除。**解决方案**：可选参数 `--check-drafts` 检查 `mcn/content/{date}/` 目录下已有草稿，避免重复选题 |
-| 热点数据URL重复 | 同一URL出现多条标题（36kr文章有主标题+副标题），导致选题列表重复。**解决方案**：`load_hotspot_data()` 已增加URL去重逻辑，优先读取JSON数据源，保留标题最完整的记录。验证：36条→21条（合并15条重复） |
-| publish_date 缺失导致排除失效 | 当文章 `publish_date` 和 `publish_time` 为空时，`'' >= cutoff_date` 返回 False，所有文章被过滤掉。**解决方案**：`check_topic_excluded()` 已修复，空日期文章默认纳入比较（不按日期过滤） |
-| 已发布文章 API 限制 | `fetch-published-articles.py` 调用微信 API 只能获取**素材管理**（草稿），无法获取已发布文章。`freepublish/batchget` API 需要**认证服务号权限**（返回 48001 未授权）。**解决方案**：已发布文章数据必须通过网页抓取获取（使用 `wechat-analytics` 技能 + web-fetcher 控制浏览器访问公众号后台） |
+| 数字+疑问句 | +15 |
+| 情绪词(终于/竟然) | +10 |
+
+### 减分项（新增）
+
+| 特征 | 减分 |
+|------|------|
+| 与已发布相似>70% | -30 |
+| 系列文（已有同类） | -20 |
+
+---
+
+## ⚠️ 用户确认环节（重要！）
+
+**收到用户"选题X"指令后，必须先确认，不可直接开始内容生成！**
+
+### 确认流程
+
+1. **显示完整选题信息**
+   ```
+   【选题 {X}】
+   标题：{原标题}
+   热度：{热度指数}
+   推荐理由：{理由}
+   内容方向：{方向}
+   
+   请确认是否开始生成内容？
+   - 回复"确认"或"开始"继续
+   - 回复"换选题"重新选择
+   - 回复"修改标题：XXX"自定义标题
+   ```
+
+2. **等待用户回复**
+   - 用户确认后才加载 mcn-content-writer
+   - 用户可自定义标题（覆盖原标题）
+   - 用户可要求调整内容方向
+
+3. **常见场景处理**
+   
+   | 用户输入 | 处理方式 |
+   |----------|----------|
+   | "选题3" | 显示选题3详情，等待确认 |
+   | "选题3，标题改成XXX" | 显示选题3+新标题，等待确认 |
+   | "选题3，侧重技术分析" | 显示选题3+调整方向，等待确认 |
+   | "确认" / "开始" | 加载内容生成技能 |
+   | "换选题2" | 显示选题2详情，等待确认 |
+
+### 为什么需要确认？
+
+- **避免内容偏离预期**：用户可能对标题有特定想法
+- **防止无效工作**：直接生成后用户不满意需要重来
+- **尊重用户决策权**：选题是关键决策点
 
 ---
 
 ## 相关技能
 
-- **mcn-hotspot-research** - 上游技能，产出到约定位置
-- **mcn-content-writer** - 下游技能，接收用户选择的选题
-- **my-mcn-manager** - 父技能，调度和引导
-
----
-
-*Version: 1.1.0 - 功能闭环 + 产出交付规范*
+- mcn-hotspot-research（热点调研）
+- mcn-feishu-push（飞书推送）
+- mcn-content-writer（内容生成）

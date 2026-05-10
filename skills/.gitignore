@@ -1,0 +1,8 @@
+# Runtime files
+.usage.json
+.curator_state
+.server.log
+.server.pid
+__pycache__/
+*.pyc
+.DS_Store

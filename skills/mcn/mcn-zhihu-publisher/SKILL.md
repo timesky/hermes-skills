@@ -1,8 +1,8 @@
 ---
 name: mcn-zhihu-publisher
 description: 'MCN 知乎专栏文章发布技能 - 将文章保存到知乎专栏草稿箱（仅草稿，不发布）。使用 web-fetcher 控制功能，支持 Draft.js 编辑器。触发词：知乎发布、zhihu发布、知乎草稿。'
-version: 2.1.0
-updated: 2026-04-16
+version: 2.1.1
+updated: 2026-05-01
 ---
 
 # MCN 知乎发布技能
@@ -185,6 +185,27 @@ cd ~/.hermes/skills/web/web-fetcher/server && node server.js
 | 扩展显示断开 | 需手动启用 | popup 中开启开关 |
 | 正文字数 = 0 | 使用旧版 OpenCLI | 使用 web-fetcher |
 | 标题选择器过时 | 知乎更新编辑器 | 检查 DevTools 更新选择器 |
+| **fillInput 超时** | 扩展未响应/页面加载慢 | 检查扩展 popup 是否打开，重试 |
+
+---
+
+## ⚠️ fillInput 超时问题（2026-05-01）
+
+**症状**：
+```
+TimeoutError: Request timeout: Hermes.fillInput
+```
+
+**可能原因**：
+1. Chrome 扩展 popup 未打开（需要用户交互激活）
+2. 页面加载慢，选择器未就绪
+3. WebSocket 连接不稳定
+
+**解决方案**：
+1. 打开 `chrome://extensions`
+2. 点击 Hermes Web Fetcher 扩展图标打开 popup
+3. 确认显示 "已连接"
+4. 重新运行发布脚本
 
 ---
 

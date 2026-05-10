@@ -39,7 +39,9 @@ def load_config_paths():
     """从配置文件加载目录路径"""
     try:
         import yaml
-        config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
+        # Profile隔离：使用HERMES_HOME环境变量
+        HERMES_HOME = os.environ.get('HERMES_HOME', '/Users/hy_timesky/.hermes')
+        config_path = os.path.join(HERMES_HOME, 'mcn_config.yaml')
         if os.path.exists(config_path):
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)

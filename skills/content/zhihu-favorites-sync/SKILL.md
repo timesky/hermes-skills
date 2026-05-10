@@ -165,6 +165,25 @@ curl http://localhost:9234/health
 
 **注意**：Cron 任务无法自动触发扩展连接，需用户手动启用后才能正常抓取。
 
+### Node.js PATH 问题 (macOS Homebrew)
+
+错误：`node: command not found` 但 Node.js 已安装
+
+解决：
+```bash
+# 检查 Node.js 是否通过 Homebrew 安装
+ls -la /opt/homebrew/bin/node
+
+# 启动服务时设置完整 PATH
+export PATH="/opt/homebrew/bin:$PATH"
+~/.hermes/skills/web/web-fetcher/server/start_server.sh start
+
+# 或直接使用完整路径
+/opt/homebrew/bin/node ~/.hermes/skills/web/web-fetcher/server/server.js
+```
+
+**原因**：Cron 任务不加载 shell profile（.zshrc/.bashrc），导致 Homebrew 安装的 Node.js 不在 PATH 中。
+
 ### 脚本限制
 
 脚本每次最多处理 10 篇文章（默认）。如果新增超过限制：

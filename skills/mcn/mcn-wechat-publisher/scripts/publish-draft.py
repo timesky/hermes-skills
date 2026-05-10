@@ -24,10 +24,20 @@ import yaml
 import re
 from datetime import datetime
 
-# 加载配置（需要在 WORKFLOW_JSON 之前）
-config_path = "/Users/hy_timesky/.hermes/mcn_config.yaml"
+# Profile隔离：HERMES_HOME在子profile指向子目录，需推导主目录找技能
+_hermes_home = os.environ.get('HERMES_HOME', '/Users/hy_timesky/.hermes')
+if '/profiles/' in _hermes_home:
+    HERMES_MAIN_HOME = _hermes_home.split('/profiles/')[0]
+else:
+    HERMES_MAIN_HOME = _hermes_home
+HERMES_HOME = _hermes_home
+SKILLS_DIR = os.path.join(HERMES_MAIN_HOME, 'skills')
+
+# 配置文件（profile隔离）
+config_path = os.path.join(HERMES_HOME, 'mcn_config.yaml')
 if not os.path.exists(config_path):
-    config_path = os.path.expanduser('~/.hermes/mcn_config.yaml')
+    # fallback到主目录
+    config_path = os.path.join(HERMES_MAIN_HOME, 'mcn_config.yaml')
 if os.path.exists(config_path):
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -61,9 +71,9 @@ def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict
     except Exception as e:
         print(f"  ⚠️ workflow.json 更新失败: {e}")
 
-# 加载环境变量
+# 加载环境变量 - 使用HERMES_HOME环境变量
 def load_env():
-    env_path = os.path.expanduser('~/.hermes/.env')
+    env_path = os.path.join(HERMES_HOME, '.env')
     if os.path.exists(env_path):
         with open(env_path, 'r', encoding='utf-8') as f:
             for line in f:
@@ -131,8 +141,16 @@ def get_access_token():
         return None
 
 
-def upload_permanent_image(access_token, filepath):
-    """上传图片到永久素材库，返回 media_id"""
+def upload_temp_image(access_token, filepath, max_retries=3):
+    """上传图片到临时素材（正文图片用），返回 URL
+    
+    Args:
+        access_token: 微信 access_token
+        filepath: 图片文件路径
+        max_retries: 最大重试次数（默认3次）
+    """
+    import time
+    
     with open(filepath, 'rb') as f:
         image_data = f.read()
     
@@ -155,50 +173,106 @@ def upload_permanent_image(access_token, filepath):
     body.extend(image_data)
     body.extend(f'\r\n--{boundary}--\r\n'.encode())
     
+    # 临时素材接口（正文图片用，返回URL）
+    url = f"https://api.weixin.qq.com/cgi-bin/media/uploadimg?access_token={access_token}"
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            opener = get_opener()
+            req = urllib.request.Request(url, data=bytes(body), headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
+            resp = opener.open(req, timeout=30)
+            result = json.loads(resp.read().decode('utf-8'))
+            
+            if 'url' in result:
+                if attempt > 1:
+                    print(f"  ✓ 重试第{attempt}次成功")
+                return result['url']
+            else:
+                print(f"  ⚠️ 上传失败（第{attempt}次）: {result}")
+                if attempt < max_retries:
+                    time.sleep(2)
+        except Exception as e:
+            print(f"  ⚠️ 上传错误（第{attempt}次）: {e}")
+            if attempt < max_retries:
+                print(f"     → 等待2秒后重试...")
+                time.sleep(2)
+    
+    print(f"  ❌ 上传失败，已重试{max_retries}次")
+    return None
+
+
+def upload_permanent_image(access_token, filepath, max_retries=3):
+    """上传图片到永久素材库（封面用），返回 media_id
+    
+    注意：微信API要求 thumb_media_id 必须是永久素材ID
+    
+    Args:
+        access_token: 微信 access_token
+        filepath: 图片文件路径
+        max_retries: 最大重试次数（默认3次）
+    """
+    import time
+    
+    with open(filepath, 'rb') as f:
+        image_data = f.read()
+    
+    # 检测实际图片类型（根据文件头）
+    if image_data[:8] == b'\x89PNG\r\n\x1a\n':
+        content_type = 'image/png'
+        filename = 'image.png'
+    elif image_data[:2] == b'\xff\xd8':
+        content_type = 'image/jpeg'
+        filename = 'image.jpg'
+    else:
+        content_type = 'image/png'
+        filename = 'image.png'
+    
+    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    body = bytearray()
+    body.extend(f'--{boundary}\r\n'.encode())
+    body.extend(f'Content-Disposition: form-data; name="media"; filename="{filename}"\r\n'.encode())
+    body.extend(f'Content-Type: {content_type}\r\n\r\n'.encode())
+    body.extend(image_data)
+    body.extend(f'\r\n--{boundary}--\r\n'.encode())
+    
+    # 永久素材接口（封面用，返回media_id）
     url = f"https://api.weixin.qq.com/cgi-bin/material/add_material?access_token={access_token}&type=image"
     
-    try:
-        opener = get_opener()
-        req = urllib.request.Request(url, data=bytes(body), headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
-        resp = opener.open(req, timeout=30)
-        result = json.loads(resp.read().decode('utf-8'))
-        
-        if 'media_id' in result:
-            return result['media_id']
-        else:
-            print(f"上传失败: {result}")
-            return None
-    except Exception as e:
-        print(f"上传错误: {e}")
-        return None
-
-
-
-
-def delete_permanent_material(access_token, media_id):
-    """删除永久素材（避免累积）"""
-    url = f"https://api.weixin.qq.com/cgi-bin/material/del_material?access_token={access_token}"
+    for attempt in range(1, max_retries + 1):
+        try:
+            opener = get_opener()
+            req = urllib.request.Request(url, data=bytes(body), headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
+            resp = opener.open(req, timeout=30)
+            result = json.loads(resp.read().decode('utf-8'))
+            
+            if 'media_id' in result:
+                if attempt > 1:
+                    print(f"  ✓ 重试第{attempt}次成功")
+                return result['media_id']
+            else:
+                print(f"  ⚠️ 上传失败（第{attempt}次）: {result}")
+                if attempt < max_retries:
+                    time.sleep(2)
+        except Exception as e:
+            print(f"  ⚠️ 上传错误（第{attempt}次）: {e}")
+            if attempt < max_retries:
+                print(f"     → 等待2秒后重试...")
+                time.sleep(2)
     
-    data = {"media_id": media_id}
+    print(f"  ❌ 上传失败，已重试{max_retries}次")
+    return None
+
+
+def upload_content_image(access_token, filepath, max_retries=3):
+    """上传图文消息内图片，返回 URL（支持重试）
     
-    try:
-        opener = get_opener()
-        req_data = json.dumps(data).encode('utf-8')
-        req = urllib.request.Request(url, data=req_data, headers={'Content-Type': 'application/json'})
-        resp = opener.open(req, timeout=10)
-        result = json.loads(resp.read().decode('utf-8'))
-        
-        if result.get('errcode') == 0:
-            print(f"  ✓ 已删除封面永久素材: {media_id}")
-            return True
-        else:
-            print(f"  ⚠️ 删除素材失败: {result}")
-            return False
-    except Exception as e:
-        print(f"  ⚠️ 删除异常: {e}")
-        return False
-def upload_content_image(access_token, filepath):
-    """上传图文消息内图片，返回 URL"""
+    Args:
+        access_token: 微信 access_token
+        filepath: 图片文件路径
+        max_retries: 最大重试次数（默认3次）
+    """
+    import time
+    
     with open(filepath, 'rb') as f:
         image_data = f.read()
     
@@ -224,20 +298,29 @@ def upload_content_image(access_token, filepath):
     
     url = f"https://api.weixin.qq.com/cgi-bin/media/uploadimg?access_token={access_token}"
     
-    try:
-        opener = get_opener()
-        req = urllib.request.Request(url, data=bytes(body), headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
-        resp = opener.open(req, timeout=30)
-        result = json.loads(resp.read().decode('utf-8'))
-        
-        if 'url' in result:
-            return result['url']
-        else:
-            print(f"上传失败: {result}")
-            return None
-    except Exception as e:
-        print(f"上传错误: {e}")
-        return None
+    for attempt in range(1, max_retries + 1):
+        try:
+            opener = get_opener()
+            req = urllib.request.Request(url, data=bytes(body), headers={'Content-Type': f'multipart/form-data; boundary={boundary}'})
+            resp = opener.open(req, timeout=30)
+            result = json.loads(resp.read().decode('utf-8'))
+            
+            if 'url' in result:
+                if attempt > 1:
+                    print(f"  ✓ 重试第{attempt}次成功")
+                return result['url']
+            else:
+                print(f"  ⚠️ 上传失败（第{attempt}次）: {result}")
+                if attempt < max_retries:
+                    time.sleep(2)  # 等待2秒后重试
+        except Exception as e:
+            print(f"  ⚠️ 上传错误（第{attempt}次）: {e}")
+            if attempt < max_retries:
+                print(f"     → 等待2秒后重试...")
+                time.sleep(2)
+    
+    print(f"  ❌ 上传失败，已重试{max_retries}次")
+    return None
 
 
 def get_account_name():
@@ -376,9 +459,19 @@ def md_to_html(md_content, image_urls, cover_url=None):
     return title, html_content
 
 
-def create_draft(access_token, title, thumb_media_id, author, content):
-    """创建草稿"""
+def create_draft(access_token, title, thumb_media_id, author, content, 
+                 need_open_comment=True, only_fans_can_comment=True):
+    """创建草稿
+    
+    Args:
+        need_open_comment: 是否开启留言（默认 True）
+        only_fans_can_comment: 是否仅粉丝可评论（默认 True = 仅关注者可留言）
+    """
     url = f"https://api.weixin.qq.com/cgi-bin/draft/add?access_token={access_token}"
+    
+    # 转换为 API 需要的格式
+    comment_flag = 1 if need_open_comment else 0
+    fans_flag = 1 if only_fans_can_comment else 0
     
     draft_data = {
         "articles": [{
@@ -386,8 +479,8 @@ def create_draft(access_token, title, thumb_media_id, author, content):
             "thumb_media_id": thumb_media_id,
             "author": author,
             "content": content,
-            "need_open_comment": 0,
-            "only_fans_can_comment": 0
+            "need_open_comment": comment_flag,  # 留言：0=关闭，1=开启
+            "only_fans_can_comment": fans_flag   # 仅粉丝可评论：0=所有人，1=仅粉丝
         }]
     }
     
@@ -415,6 +508,8 @@ def main():
     parser.add_argument('--date', type=str, required=True, help='日期')
     parser.add_argument('--topic', type=str, help='文章主题（用于定位配图目录）')
     parser.add_argument('--images', type=str, nargs='+', help='配图路径列表（可选，不指定则自动扫描）')
+    parser.add_argument('--no-comment', action='store_true', help='关闭留言（默认开启）')
+    parser.add_argument('--all-can-comment', action='store_true', help='所有人可评论（默认仅关注者可留言）')
     
     args = parser.parse_args()
     
@@ -478,6 +573,9 @@ def main():
         # 优先 JPG 版本（*_upload.jpg）
         img_files = sorted([f for f in os.listdir(images_dir) if f.endswith("_upload.jpg")])
         if not img_files:
+            # 次优先：img_*.jpg
+            img_files = sorted([f for f in os.listdir(images_dir) if f.startswith("img_") and f.endswith(".jpg")])
+        if not img_files:
             # 回退到 PNG
             img_files = sorted([f for f in os.listdir(images_dir) if f.startswith("img_") and f.endswith(".png")])
         print(f"发现 {len(img_files)} 张配图: {', '.join(img_files)}")
@@ -533,7 +631,16 @@ def main():
         if len(image_urls) >= 1:
             # 封面图作为首图（IMG_0）
             # 需要单独上传封面图到正文图库（不同于永久素材封面）
-            cover_img_url = upload_content_image(access_token, os.path.join(images_dir, 'cover.png'))
+            cover_candidates = [
+                os.path.join(images_dir, 'cover.jpg'),  # 优先 JPG
+                os.path.join(images_dir, 'cover.png'),  # 回退 PNG
+            ]
+            cover_img_url = None
+            for cover_path in cover_candidates:
+                if os.path.exists(cover_path):
+                    cover_img_url = upload_content_image(access_token, cover_path)
+                    if cover_img_url:
+                        break
             if cover_img_url:
                 html_content = html_content.replace('IMG_0_PLACEHOLDER', cover_img_url)
                 print(f"  ✓ 封面图作为首图: {cover_img_url[:50]}...")
@@ -551,11 +658,16 @@ def main():
         
         # 上传封面图到正文图库（作为首图）
         cover_url = None
-        cover_path = os.path.join(images_dir, 'cover.png')
-        if os.path.exists(cover_path):
-            cover_url = upload_content_image(access_token, cover_path)
-            if cover_url:
-                print(f"  ✓ 封面图上传成功: {cover_url[:50]}...")
+        cover_candidates = [
+            os.path.join(images_dir, 'cover.jpg'),  # 优先 JPG
+            os.path.join(images_dir, 'cover.png'),  # 回退 PNG
+        ]
+        for cover_path in cover_candidates:
+            if os.path.exists(cover_path):
+                cover_url = upload_content_image(access_token, cover_path)
+                if cover_url:
+                    print(f"  ✓ 封面图上传成功: {cover_url[:50]}...")
+                    break
         
         title, html_content = md_to_html(article_md, image_urls, cover_url)
         
@@ -564,7 +676,14 @@ def main():
     
     # 创建草稿
     print("\n[5] 创建草稿...")
-    draft_media_id = create_draft(access_token, title, thumb_media_id, AUTHOR, html_content)
+    need_open_comment = not args.no_comment  # 默认开启留言
+    # 默认仅关注者可留言（fans_only_comment 默认 True）
+    fans_only = not args.all_can_comment if hasattr(args, 'all_can_comment') else True
+    draft_media_id = create_draft(
+        access_token, title, thumb_media_id, AUTHOR, html_content,
+        need_open_comment=need_open_comment,
+        only_fans_can_comment=fans_only
+    )
     
     if draft_media_id:
         print(f"\n✅ 草稿创建成功!")
@@ -572,10 +691,6 @@ def main():
         
         # 更新 workflow.json
         update_workflow_json("published", args.topic)
-        
-        # 删除封面永久素材（避免累积）
-        print("\n[清理] 删除封面永久素材...")
-        delete_permanent_material(access_token, thumb_media_id)
         
         print()
         print("下一步: 登录公众号后台查看并发布")

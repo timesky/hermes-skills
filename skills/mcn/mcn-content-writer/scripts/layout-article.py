@@ -21,10 +21,9 @@ import argparse
 import yaml
 from datetime import datetime
 
-# 配置
-MCN_CONFIG = "/Users/hy_timesky/.hermes/mcn_config.yaml"
-if not os.path.exists(MCN_CONFIG):
-    MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
+# 配置 - Profile隔离：使用HERMES_HOME环境变量
+HERMES_HOME = os.environ.get('HERMES_HOME', '/Users/hy_timesky/.hermes')
+MCN_CONFIG = os.path.join(HERMES_HOME, 'mcn_config.yaml')
 
 def load_config():
     """加载配置"""
@@ -318,7 +317,7 @@ def add_footer(content: str) -> str:
 
 # ==================== 主流程 ====================
 
-def layout_article(article_path: str, date: str) -> dict:
+def layout_article(article_path: str, date: str, skip_title: bool = False) -> dict:
     """完整排版流程"""
     
     print("=" * 60)
@@ -326,6 +325,8 @@ def layout_article(article_path: str, date: str) -> dict:
     print("=" * 60)
     print(f"输入: {article_path}")
     print(f"日期: {date}")
+    if skip_title:
+        print("  ⚠️ 跳过标题选举，使用现有标题")
     
     # 读取文章
     if not os.path.exists(article_path):
@@ -353,8 +354,24 @@ def layout_article(article_path: str, date: str) -> dict:
         article_dir = os.path.dirname(article_path)
         topic = os.path.basename(article_dir)
     
-    # 1. 标题竞选
-    best_title = select_best_title(topic)
+    # 1. 标题选举或使用现有标题
+    if skip_title:
+        # 从 frontmatter 或文章标题行读取现有标题
+        title_match_fm = re.search(r'^title:\s*(.+)$', frontmatter, re.MULTILINE)
+        if title_match_fm:
+            current_title = title_match_fm.group(1).strip()
+        else:
+            # 从 # 标题行读取
+            title_match_h1 = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+            if title_match_h1:
+                current_title = title_match_h1.group(1).strip()
+            else:
+                current_title = topic
+        
+        best_title = {"title": current_title, "score": 0, "formula": "现有标题"}
+        print(f"\n  ✓ 使用现有标题: {current_title}")
+    else:
+        best_title = select_best_title(topic)
     
     # 2. 插入图片锚点
     content_with_anchors = insert_image_anchors(content)
@@ -374,38 +391,39 @@ def layout_article(article_path: str, date: str) -> dict:
     print(f"  最佳标题: {best_title['title']}")
     print(f"  输出文件: {layout_file}")
     
-    # 更新原文章的标题
-    new_frontmatter = frontmatter.replace(
-        re.search(r'^title:\s*.+$', frontmatter).group(0) if re.search(r'^title:\s*.+$', frontmatter) else '',
-        f"title: {best_title['title']}"
-    ) if re.search(r'^title:\s*.+$', frontmatter) else frontmatter + f"title: {best_title['title']}\n"
-    
-    # 保存更新后的文章（Markdown 版）
-    with open(article_path, 'w', encoding='utf-8') as f:
-        # 如果 frontmatter 没有 title，添加一个
-        if 'title:' not in frontmatter:
-            # 在 frontmatter 中添加 title
-            fm_dict = {}
-            if frontmatter_match:
-                fm_content = frontmatter_match.group(1)
-                for line in fm_content.split('\n'):
-                    if ':' in line:
-                        key, value = line.split(':', 1)
-                        fm_dict[key.strip()] = value.strip()
-            fm_dict['title'] = best_title['title']
-            
-            new_fm = "---\n"
-            for k, v in fm_dict.items():
-                new_fm += f"{k}: {v}\n"
-            new_fm += "---\n"
-            
-            f.write(new_fm + content)
-        else:
-            # 替换现有 title
-            updated_fm = re.sub(r'^title:\s*.+$', f"title: {best_title['title']}", frontmatter, flags=re.MULTILINE)
-            f.write(updated_fm + content)
-    
-    print(f"  文章标题已更新: {article_path}")
+    # 更新原文章的标题（仅当非 skip_title 时）
+    if not skip_title:
+        new_frontmatter = frontmatter.replace(
+            re.search(r'^title:\s*.+$', frontmatter).group(0) if re.search(r'^title:\s*.+$', frontmatter) else '',
+            f"title: {best_title['title']}"
+        ) if re.search(r'^title:\s*.+$', frontmatter) else frontmatter + f"title: {best_title['title']}\n"
+        
+        # 保存更新后的文章（Markdown 版）
+        with open(article_path, 'w', encoding='utf-8') as f:
+            # 如果 frontmatter 没有 title，添加一个
+            if 'title:' not in frontmatter:
+                # 在 frontmatter 中添加 title
+                fm_dict = {}
+                if frontmatter_match:
+                    fm_content = frontmatter_match.group(1)
+                    for line in fm_content.split('\n'):
+                        if ':' in line:
+                            key, value = line.split(':', 1)
+                            fm_dict[key.strip()] = value.strip()
+                fm_dict['title'] = best_title['title']
+                
+                new_fm = "---\n"
+                for k, v in fm_dict.items():
+                    new_fm += f"{k}: {v}\n"
+                new_fm += "---\n"
+                
+                f.write(new_fm + content)
+            else:
+                # 替换现有 title
+                updated_fm = re.sub(r'^title:\s*.+$', f"title: {best_title['title']}", frontmatter, flags=re.MULTILINE)
+                f.write(updated_fm + content)
+        
+        print(f"  文章标题已更新: {article_path}")
     
     return {
         "status": "success",
@@ -418,10 +436,11 @@ def main():
     parser = argparse.ArgumentParser(description='文章排版（标题竞选 + 美化 + 锚点 + 尾部）')
     parser.add_argument('--article', type=str, required=True, help='文章路径')
     parser.add_argument('--date', type=str, required=True, help='日期 (YYYY-MM-DD)')
+    parser.add_argument('--skip-title', action='store_true', help='跳过标题选举，使用现有标题')
     
     args = parser.parse_args()
     
-    result = layout_article(args.article, args.date)
+    result = layout_article(args.article, args.date, skip_title=args.skip_title)
     
     if result['status'] == 'success':
         print("\n" + "=" * 60)

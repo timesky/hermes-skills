@@ -47,7 +47,6 @@ updated: 2026-04-16
 | humanizer-zh | 去 AI 化处理（被 content-writer 调用） | `~/.hermes/skills/content/humanizer-zh/SKILL.md` |
 | ai-image-generation | 配图生成（被本技能调用） | `~/.hermes/skills/content/ai-image-generation/SKILL.md` |
 | mcn-wechat-publisher | 微信公众号草稿发布 | `~/.hermes/skills/mcn/mcn-wechat-publisher/SKILL.md` |
-| mcn-zhihu-publisher | 知乎专栏草稿保存（仅草稿） | `~/.hermes/skills/mcn/mcn-zhihu-publisher/SKILL.md` |
 | wechat-analytics | 公众号数据采集（阶段 8） | `~/.hermes/skills/mcn/wechat-analytics/SKILL.md` |
 
 **缺失处理**：如果子技能缺失，提示用户安装：
@@ -84,7 +83,7 @@ updated: 2026-04-16
 
 | 阶段 | 名称 | 子技能 | 产出交付 |
 |------|------|--------|----------|
-| 1 | 调研 | mcn-hotspot-research | `mcn/hotspot/{date}/hotspot.json` |
+| 1 | 调研 | mcn-hotspot-research | `mcn/hotspot/{date}/hotspots.json` |
 | 2 | 选题+预抓取 | mcn-topic-selector | `mcn/topic/{date}/recommend.md` + **`sources/`目录**（原文+竞品数据） |
 | 3 | 用户选择 | - | 用户指定选题标题 |
 | 4 | 改写 | mcn-content-writer | `mcn/content/{date}/{slug}/article.md`（1500-2000字） |
@@ -110,23 +109,7 @@ updated: 2026-04-16
 | 排版 | 图片位置、列表使用、分段长度 | 排版模板调整 |
 | 引流话术 | 结尾引导、关注提示 | 固定尾部优化 |
 
-### 工作流 2：知乎专栏发布
 
-```
-调研 → 选题 → 用户选择 → 内容生成 → 知乎草稿
-```
-
-| 阶段 | 子技能 | 产出交付 |
-|------|--------|----------|
-| 1-4 | 同工作流1 | 同工作流1 |
-| 5 | mcn-zhihu-publisher | 知乎草稿 URL（⚠️ 仅草稿，不发布） |
-
-**⚠️ 知乎安全约束**：
-- 知乎无官方 API，使用浏览器自动化
-- 仅保存草稿，用户需手动检查后发布
-- 需 OpenCLI daemon（端口 19825）+ Node v20
-
-### 工作流 3：其他渠道（预留）
 
 后续可扩展：
 - 小红书发布流程
@@ -177,6 +160,63 @@ updated: 2026-04-16
    - images_done → 继续发布草稿
 3. 根据状态继续执行对应阶段
 ```
+
+### ⚠️ 选题索引机制（强制要求 - 已多次出错）
+
+**当用户说"选题N"时，必须先读取当天的选题报告文件**：
+
+1. **检查路径优先级**（按顺序尝试）：
+   - `mcn/hotspot/{YYYY-MM-DD}/recommend.md` ← **热点调研定时任务产出**
+   - `mcn/topic/{YYYY-MM-DD}/recommend.md` ← 选题分析产出
+2. **解析选题**：根据序号N定位到对应选题（表格中的第N行）
+3. **提取信息**：标题、热度、推荐理由
+4. **禁止猜测**：绝不允许凭空想象选题内容
+
+**正确流程**：
+```
+用户: 选题1 2 5
+
+Luna: 
+1. 获取今天日期：2026-05-03
+2. 尝试读取 {kb_root}/mcn/hotspot/2026-05-03/recommend.md ← ✅ 存在
+3. 解析表格：序号1=微信出了限时新状态, 序号2=美媒电动车, 序号5=沙漠光伏
+4. 立即执行内容生成（并行3篇）
+```
+
+**⚠️ 定时任务衔接关键点**：
+- 定时任务产出在 `hotspot/` 目录，不是 `topic/`
+- 收到"选题X"指令后，**第一步就是检查今天的 hotspot 报告**
+- 不要询问用户"是否需要热点调研"——定时任务已经完成了
+
+**违规操作**（已导致多次错误）：
+- ❌ 不读报告直接猜测"选题3 = DeepSeek..."
+- ❌ 凭记忆或上下文推断选题内容
+- ❌ 忽略日期，读取错误的报告文件
+
+### ⚠️ 多选题响应机制（强制要求 - 新增）
+
+**当用户回复多选题选项（如"A/B/C"）时**：
+
+1. **严格遵循选项定义**：选项有明确的含义，必须按定义执行
+2. **禁止重新解释**：不能把选项字母当成模糊信号
+3. **立即执行**：根据选项定义，立即执行对应操作
+
+**错误示例**：
+```
+问：选题3是A(报告第3个)/B(独立选题)/C(其他)？
+用户答：B
+错误：重新开始热点调研流程 ❌
+正确：立即执行"DeepSeek-V4-Pro"内容生成 ✅
+```
+
+**正确流程**：
+```
+用户回复"B" 
+→ 查看选项定义："您独立指定的选题：DeepSeek-V4-Pro"
+→ 立即执行内容生成，标题="DeepSeek-V4-Pro 写代码到底行不行"
+```
+
+---
 
 **用户选择选题时的处理流程**（由 Luna 主 agent 执行）：
 ```
@@ -242,8 +282,6 @@ Luna:
 | `"内容生成 {选题}"` | mcn-content-writer |
 | `"配图 {选题}"` | ai-image-generation |
 | `"发布草稿"` | publish-draft.py |
-| `"知乎草稿"` | mcn-zhihu-publisher |
-| `"发布到知乎"` | mcn-zhihu-publisher |
 
 ### 阶段间衔接
 
@@ -415,6 +453,8 @@ done
 | 工作流中断 | 子技能执行失败 | 返回失败状态，不继续下一阶段 |
 | 飞书推送路径错误 | push-to-feishu.py 曾硬编码 `/Users/timesky/` | 已修复：现在从 `~/.hermes/mcn_config.yaml` 读取 kb_root 路径 |
 | baoyu 技能不识别 | npx 安装在 .agents/skills/ | 创建符号链接到 skills/ 目录 |
+| **Cronjob 技能名格式错误** | 配置写 `mcn-hotspot-research` 缺少前缀 | **必须用 `mcn/mcn-hotspot-research` 格式**（带分类前缀） |
+| 定时执行技能加载失败 | GLM-5 先尝试 skill_view 累积错误 | 修复技能名格式，不要在 prompt 中写"跳过技能" |
 
 ---
 

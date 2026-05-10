@@ -1,9 +1,9 @@
 ---
 name: wiki-ingest
 description: 增量式 ingest 流程，将 raw 源文件转换为 wiki 结构化内容。支持单个文件 ingest 和批量 ingest 两种模式。当用户说"ingest"、"建立 wiki"、"处理 raw 目录"、"批量 ingest"、"raw 目录所有内容都要建立 wiki"时使用。优先优化此技能，不要创建重复技能。
-version: 2.2
+version: 2.3
 created: 2026-04-12
-updated: 2026-04-13
+updated: 2026-05-04
 author: Luna
 inspired_by: Karpathy LLM Wiki
 ---
@@ -229,13 +229,40 @@ patch(path="wiki/index.md", old_string=old_count, new_count=new_count)
 
 ## Pitfalls
 
-1. **不要覆盖 index.md**：使用 patch 增量更新
+1. **KB_ROOT 环境变量必须设置**：脚本默认路径 `/Users/timesky/backup/知识库-Obsidian` 可能不匹配实际路径。务必在运行前设置：
+   ```bash
+   export KB_ROOT=/Users/<your_user>/Documents/My_Obsidian
+   ```
+   或在 Python 中直接使用正确路径。
+
+2. **unprocessed.log 可能过期**：此文件由定时扫描生成，如果知乎同步后立即运行 ingest，可能显示"0 unprocessed"但实际有新文件。建议：先用验证脚本扫描 `raw/**/*.md` 对比 `processed.log` 确认真实未处理数。
+
+3. **index.md 表格格式不一致**：表格可能使用 `||` 或 `|` 分隔符混用，patch 工具可能因"部分匹配"失败。建议：
+   - 先用 Python 检查实际格式：`lines[i].startswith('| [[')` vs `lines[i].startswith('|| [[')`
+   - 使用 Python 直接插入新行更可靠
+   - 或使用 `replace_all=True` 但需谨慎
+
+2. **不适合 wiki 化的内容**：以下类型标记为"已归档"，不创建 wiki 页面：
+   - 实盘记录/炒股日记（如"2W全仓挑战300W"）
+   - 热点聚合/资讯快报（时效性内容）
+   - 纯问答讨论（无结构化知识）
+   - 个人日记/心情记录
+   处理方式：在 processed.log 中记录 `| — | 已归档（原因） |`
 2. **检查 processed.log**：避免重复处理同一文件
 3. **相关文件合并**：多篇同主题文章 → 一个 Wiki 页面
 4. **append-only 日志**：log.md 和 processed.log 只追加
+   - **⚠️ 禁止 read_file + offset + write_file**：`read_file(path, offset=N)` 只返回部分内容，后续用 `write_file` 会覆盖整个文件导致截断
+   - **正确做法 1**：用 `file.read_text()` 读取完整内容，再 `.write_text(content + new_entry)`
+   - **正确做法 2**：用 Python `Path(file).write_text(Path(file).read_text() + new_entry)`
+   - **正确做法 3**：用 `terminal` 命令 `echo "新内容" >> file` 直接追加
 5. **保留原始内容**：增量更新时不删除已有内容
 6. **不要创建重复技能**：发现流程缺陷时，优先优化现有技能（如 wiki-ingest），而不是创建新技能（如 batch-ingest）
 7. **处理所有类型文件**：不跳过无 frontmatter 或短文件，按类型分类处理
+8. **regex 匹配含空格路径**：路径可能含中文和空格，必须用 `[^|]` 匹配直到管道符，不能用 `\s` 或 `[^\s]`（否则漏匹配导致验证失败）
+9. **processed.log 格式一致性**：所有记录必须使用表格格式 `| raw/... | 日期 | wiki页面 | 状态 |`，禁止简单格式 `raw/...`（会导致 regex 匹配失败，验证脚本误报未处理文件）
+10. **扫描范围完整性**：验证脚本应扫描 `raw/**/*.md`（所有子目录），而非仅 `raw/sources/`。文件可能在 `raw/` 根目录、`raw/sources/`、`raw/notes/` 等位置
+11. **文件大小更可靠**：使用文件大小 > 500 字节判断页面有效性，比 body line counting 更简单可靠（避免复杂的前置内容解析错误）
+12. **Sources 字段是列表**：Wiki 页面使用 `sources:`（复数，YAML 列表），提取时需用列表匹配正则，见 `references/wiki-frontmatter-format.md`
 
 ---
 
@@ -309,24 +336,40 @@ from pathlib import Path
 import re
 
 KB_ROOT = Path("/Users/hy_timesky/Documents/My_Obsidian")
-RAW_DIR = KB_ROOT / "raw" / "sources"
+RAW_DIR = KB_ROOT / "raw"  # 扫描整个 raw 目录，包括 sources、notes 等子目录
 PROC_LOG = KB_ROOT / "wiki" / "processed.log"
 
-# 1. 统计 raw 文件
-raw_files = list(RAW_DIR.glob("*.md"))
+# 1. 统计 raw 文件（所有子目录）
+raw_files = list(RAW_DIR.glob("**/*.md"))
+# 过滤掉 assets 目录
+raw_files = [f for f in raw_files if "assets" not in str(f)]
 
 # 2. 读取 processed.log 提取已处理文件
+# 关键：使用 [^|] 匹配直到管道符，而非 \s（因为路径可能含中文和空格）
+# 注意：文件可能在 raw/ 根目录，也可能在 raw/sources/ 或 raw/notes/ 子目录
 processed_files = set()
 if PROC_LOG.exists():
     content = PROC_LOG.read_text()
     for line in content.split('\n'):
         if '|' in line and '.md' in line:
-            match = re.search(r'raw/sources/([^|]+\.md)', line)
+            # 匹配任意 raw/ 开头的路径，直到 | 分隔符
+            # 包括 raw/xxx.md、raw/sources/xxx.md、raw/notes/xxx.md 等
+            match = re.search(r'\| raw/([^\|]+\.md)', line)
             if match:
-                processed_files.add(match.group(1))
+                rel_path = match.group(1).strip()
+                processed_files.add(rel_path)
 
 # 3. 对比 - 找未处理文件
-unprocessed = [f.name for f in raw_files if f.name not in processed_files]
+# 使用完整相对路径匹配，而非仅文件名
+unprocessed = []
+for f in raw_files:
+    try:
+        rel_path = f.relative_to(KB_ROOT / "raw")
+        rel_str = str(rel_path)
+        if rel_str not in processed_files:
+            unprocessed.append(rel_str)
+    except:
+        pass
 
 # 4. 验证 wiki 页面有实质内容
 empty_pages = []
@@ -351,7 +394,19 @@ else:
 |------|------|
 | 未处理文件 | 0 |
 | 空 wiki 页面 | 0 |
-| Wiki 页面内容 | ≥3 行实质内容 |
+| Wiki 页面内容 | ≥3 行实质内容 或 文件大小 > 500 字节 |
+
+### 快速验证脚本
+
+```bash
+# 运行硬指标验证
+python3 ~/.hermes/skills/note-taking/wiki-ingest/scripts/verify_wiki_quality.py
+
+# 详细输出
+python3 ~/.hermes/skills/note-taking/wiki-ingest/scripts/verify_wiki_quality.py --verbose
+```
+
+**经验**: 文件大小 > 500 字节是更简单可靠的判断标准，避免复杂的前置内容解析。
 
 ---
 
@@ -394,6 +449,15 @@ tags: {从内容提取关键词}
 | raw/notes/速记.md | 快速记录内容 | 29 | 待定 |
 | raw/notes/投资理财/龙头战法.md | 龙头战法要点 | 53 | wiki/concepts/龙头战法.md |
 ```
+
+---
+
+## 参考
+
+- `scripts/verify_wiki_quality.py` - 硬指标验证脚本（完整版）
+- `scripts/quick_verify.py` - 快速验证脚本（轻量版，自动检测 KB_ROOT）
+- `references/wiki-frontmatter-format.md` - Wiki frontmatter 格式说明
+- `references/kb-root-detection.md` - KB_ROOT 路径自动检测模式
 
 ---
 

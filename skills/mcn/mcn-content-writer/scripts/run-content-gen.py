@@ -21,7 +21,17 @@ import requests
 from datetime import datetime
 
 # 配置
-MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
+# Profile隔离：HERMES_HOME在子profile指向子目录，需推导主目录找技能
+_hermes_home = os.environ.get('HERMES_HOME', '/Users/hy_timesky/.hermes')
+# 推导主目录：如果包含/profiles/则提取主目录，否则直接使用
+if '/profiles/' in _hermes_home:
+    HERMES_MAIN_HOME = _hermes_home.split('/profiles/')[0]
+else:
+    HERMES_MAIN_HOME = _hermes_home
+# 技能目录在主目录下
+HERMES_HOME = _hermes_home  # 用于配置文件（profile隔离）
+SKILLS_DIR = os.path.join(HERMES_MAIN_HOME, 'skills')  # 技能目录固定在主目录
+MCN_CONFIG = os.path.join(HERMES_HOME, 'mcn_config.yaml')
 
 # 从配置文件读取路径
 try:
@@ -46,9 +56,8 @@ def call_llm_api(prompt: str) -> str:
         str: LLM 生成的文本，失败返回 None
     """
     
-    config_path = "/Users/hy_timesky/.hermes/mcn_config.yaml"
-    if not os.path.exists(config_path):
-        config_path = os.path.expanduser("~/.hermes/mcn_config.yaml")
+    # 使用全局配置路径（已通过HERMES_HOME环境变量）
+    config_path = MCN_CONFIG
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
     
@@ -133,8 +142,8 @@ def update_workflow_json(status: str, topic_slug: str = None, data_updates: dict
     except Exception as e:
         print(f"  ⚠️ workflow.json 更新失败: {e}")
 
-# 模板路径（本技能内部）
-TEMPLATE_FILE = os.path.expanduser("~/.hermes/skills/mcn/mcn-content-writer/templates/content-templates.md")
+# 模板路径（技能目录在主目录）
+TEMPLATE_FILE = os.path.join(SKILLS_DIR, 'mcn/mcn-content-writer/templates/content-templates.md')
 
 def slugify(text: str) -> str:
     """将文本转换为目录名安全的 slug"""
@@ -266,29 +275,69 @@ def read_topic_report(date: str):
     return topics
 
 def generate_titles(topic: str, style: str = 'professional') -> list:
-    """生成 5 个候选标题"""
+    """生成 5 个候选标题（使用高CTR模板）"""
+    
+    # 读取高CTR标题模板
+    title_features_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), '..', '..', '..', 'Documents', 'My_Obsidian', 'mcn', 'title_features.json')
+    
+    # 尝试从配置路径读取
+    try:
+        kb_root = config.get('paths', {}).get('kb_root', '/Users/hy_timesky/Documents/My_Obsidian')
+        title_features_path = os.path.join(kb_root, 'mcn', 'title_features.json')
+        if os.path.exists(title_features_path):
+            with open(title_features_path, 'r', encoding='utf-8') as f:
+                title_features = json.load(f)
+        else:
+            title_features = None
+    except:
+        title_features = None
+    
+    # 构建标题公式提示词
+    if title_features:
+        high_ctr = title_features.get('title_patterns', {}).get('high_ctr_patterns', [])
+        tech_specific = title_features.get('title_patterns', {}).get('tech_specific_patterns', [])
+        forbidden = title_features.get('forbidden_patterns', [])
+        length_rules = title_features.get('title_length_rules', {})
+        
+        formulas_text = "\n".join([f"{i+1}. {p['type']}：{p['template']}（CTR提升{p.get('ctr_boost', '1.5x')}）示例：{p['examples'][0]}" 
+                                   for i, p in enumerate(high_ctr[:5])])
+        tech_text = "\n".join([f"- {p['type']}：{p['template']}" for p in tech_specific])
+        forbidden_text = "\n".join([f"- {f}" for f in forbidden[:5]])
+        optimal_length = length_rules.get('optimal_range', '22-28字')
+    else:
+        formulas_text = """1. 数字冲击型：{数字}{单位}，{主体}{结果}（CTR提升1.8x）
+2. 对比反差型：{A}{正向动作}，{B}却{反向动作}（CTR提升1.6x）
+3. 利益相关型：{人群标签}注意：{影响事件}（CTR提升1.9x）
+4. 时效权威型：{时间词}，{权威来源}{事件}（CTR提升1.7x）
+5. 疑问悬念型：{疑问词}{主体}{反常行为}？（CTR提升1.4x）"""
+        tech_text = "- 技术解密型：{技术名词}背后的{秘密/真相/逻辑}"
+        forbidden_text = "- 标题党过度夸张\n- 使用'必看''一定要'等强制词"
+        optimal_length = "22-28字"
     
     prompt = f"""根据以下话题，生成 5 个公众号文章标题：
 
 话题：{topic}
 风格：{style}
 
-使用不同的标题公式：
-1. 具体数据 + 结果（如：华为芯片：数据揭示了什么）
-2. 争议观点 + 反转（如：华为芯片火了，但争议背后是什么）
-3. 问题 + 深度分析（如：华为芯片：事实和想象差距有多大）
-4. 对比 + 引发思考（如：同样是讨论华为芯片，为何观点天差地别）
-5. 热点 + 个人看法（如：关于华为芯片，我想说几句）
+使用以下高CTR标题公式（优先使用）：
+{formulas_text}
+
+科技类专属公式：
+{tech_text}
+
+禁用模式（避免使用）：
+{forbidden_text}
 
 要求：
-- 标题长度：15-25 字
+- 标题长度：{optimal_length}（手机显示上限36字）
 - 吸引点击但不夸张
+- 优先使用数字冲击型和利益相关型（CTR最高）
 - 避免模板词：揭秘、关键点、让你看懂、真相、核心、方法、步骤
-- 使用个性化词：数据、争议、差距、反转、看法
+- 使用个性化词：数据、争议、差距、反转、看法、注意
 
 输出格式（JSON数组，不要包含其他内容）：
 [
-  {{\"formula\": \"公式类型\", \"title\": \"标题内容\"}},
+  {{\"formula\": \"公式类型\", \"title\": \"标题内容\", \"ctr_boost\": \"预估提升\"}},
   ...
 ]
 """

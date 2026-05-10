@@ -41,7 +41,7 @@
 
 | 子技能 | 输入 | 产出 | 状态返回 |
 |--------|------|------|----------|
-| mcn-hotspot-research | --date | `hotspot/{date}/hotspot.json` | success + path |
+| mcn-hotspot-research | --date | `hotspot/{date}/hotspots.json` | success + path |
 | mcn-topic-selector | --date（读取热点） | `topic/{date}/recommend.md` | success + path |
 | mcn-content-writer | --topic | `content/{date}/{slug}/article.md` | success + path |
 | ai-image-generation | --topic --date | `content/{date}/{slug}/images/*.png` | success + paths |
@@ -55,7 +55,7 @@ mcn/
 ├── workflow.json              # ⚓ 锚点文件（跨会话衔接）
 │
 ├── hotspot/{date}/              # mcn-hotspot-research 产出
-│   ├── hotspot.json             # 热点数据
+│   ├── hotspots.json            # 热点数据
 │   └── sources/                 # 原始数据备份
 │
 ├── topic/{date}/                # mcn-topic-selector 产出
@@ -94,7 +94,7 @@ mcn/
   "status": "pending_user_choice",
   
   "data_paths": {
-    "hotspot": "mcn/hotspot/2026-04-19/hotspot.json",
+    "hotspot": "mcn/hotspot/2026-04-19/hotspots.json",
     "topic": "mcn/topic/2026-04-19/analysis.json",
     "recommend": "mcn/topic/2026-04-19/recommend.md"
   },
@@ -219,7 +219,7 @@ paths:
 ### 热点 → 选题
 
 ```
-mcn-hotspot-research 产出：mcn/hotspot/{date}/hotspot.json
+mcn-hotspot-research 产出：mcn/hotspot/{date}/hotspots.json
 mcn-topic-selector 读取：同上（约定位置）
 ```
 

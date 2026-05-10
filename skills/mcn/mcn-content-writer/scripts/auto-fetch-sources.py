@@ -24,7 +24,9 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 # 配置
-MCN_CONFIG = os.path.expanduser("~/.hermes/mcn_config.yaml")
+# Profile隔离：使用HERMES_HOME环境变量
+HERMES_HOME = os.environ.get('HERMES_HOME', '/Users/hy_timesky/.hermes')
+MCN_CONFIG = os.path.join(HERMES_HOME, 'mcn_config.yaml')
 
 try:
     with open(MCN_CONFIG, 'r', encoding='utf-8') as f:

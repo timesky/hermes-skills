@@ -18,8 +18,8 @@ import os
 import re
 import sys
 
-# 添加 web-fetcher 路径
-WEB_FETCHER_PATH = os.path.expanduser('~/.hermes/skills/web/web-fetcher/server')
+# 添加 web-fetcher 路径（绝对路径，兼容 Profile 环境）
+WEB_FETCHER_PATH = '/Users/hy_timesky/.hermes/skills/web/web-fetcher/server'
 sys.path.insert(0, WEB_FETCHER_PATH)
 
 from hermes_web_fetcher import HermesWebFetcher
