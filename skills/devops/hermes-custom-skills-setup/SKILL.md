@@ -297,9 +297,70 @@ CUSTOM_SKILLS = [
 
 ---
 
+## Curator 技能治理系统（v0.12.0+）
+
+Hermes v0.12.0 引入了 **Curator** 自动治理机制，定期审查、清理、归档技能。
+
+### 查看状态
+
+```bash
+hermes curator status
+```
+
+输出示例：
+```
+curator: ENABLED
+  runs:           0
+  last run:       4d ago
+  interval:       every 7d
+  stale after:    30d unused
+  archive after:  90d unused
+```
+
+### Curator 参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| 运行间隔 | 7 天 | 自动审查周期 |
+| 标记 stale | 30 天未用 | 超时未使用的技能标记为 stale |
+| 归档 | 90 天未用 | 超时未使用的技能自动归档 |
+| 自动删除 | **永不** | 只归档不删除，可恢复 |
+
+### Curator 命令
+
+```bash
+hermes curator status          # 查看状态和统计
+hermes curator run             # 立即执行审查
+hermes curator run --dry-run   # 预览（不实际操作）
+hermes curator pause           # 暂停自动审查
+hermes curator resume          # 恢复自动审查
+hermes curator pin <skill>     # 固定技能（curator 不处理）
+hermes curator unpin <skill>   # 解除固定
+hermes curator restore <skill> # 从归档恢复技能
+hermes curator backup          # 手动备份 skills 目录
+hermes curator rollback        # 从备份恢复
+```
+
+### 保护规则
+
+- **Bundled 技能**：永不被 curator 修改
+- **Hub 安装技能**：永不被 curator 修改
+- **Agent 创建技能**：唯一被 curator 处理的对象
+- **Pinned 技能**：用户固定后永不被处理
+
+### 与自建技能的关系
+
+自建技能如果通过 Git 仓库管理（软连接方案），不会被 curator 视为 "agent-created"，因此不会被自动归档。
+
+**建议**：
+- 重要自建技能用 `hermes curator pin <skill>` 固定，防止误操作
+- 定期运行 `hermes curator run --dry-run` 检查技能健康度
+
+---
+
 ## 官方 Overlay 方案（进行中）
 
-GitHub Issue #16852 提出了官方解决方案，预计在 v0.11+ 实现：
+GitHub Issue #16852 提出了官方解决方案，预计在 v0.11+ 实现（注：v0.12.0 已有 Curator，但 Overlay 未实现）：
 
 ### 架构设计
 
@@ -404,7 +465,54 @@ MCN   知识库
 - **多 Agent 分工 + 大量自建技能** → Profile 隔离方案
 - **等待官方方案** → Issue #16852 Overlay 架构
 
+## Profile 技能共享方案对比
+
+### 方案A：external_dirs（官方推荐 v0.13.0+）
+
+**原理**：通过 config.yaml 配置共享目录
+
+```yaml
+# ~/.hermes/profiles/mcn/config.yaml
+skills:
+  external_dirs: ["../skills"]  # 相对路径指向 ~/.hermes/skills/
+```
+
+**优点**：
+- 官方原生支持，无需手动 symlink
+- 一次更新，所有 Profile 自动同步
+- Git 仓库可放在 `~/.hermes/skills/`
+- Curator 不会治理 `external_dirs` 的技能
+
+**缺点**：
+- 需要每个 Profile 配置 external_dirs
+- 相对路径解析依赖 Profile 目录结构
+
+详见：[autonomous-ai-agents/hermes-agent/references/multi-profile-skill-governance.md](../../autonomous-ai-agents/hermes-agent/references/multi-profile-skill-governance.md)
+
+### 方案B：Symlink 共享池（当前使用）
+
+MCN profile 使用 `.agents/skills/` 目录 + symlink 实现技能共享。详见 [references/profile-symlink-sharing.md](references/profile-symlink-sharing.md)。
+
+### 方案C：完整复制
+
+Profile 创建时复制所有技能，独立管理。
+
+---
+
+### 推荐方案
+
+| 场景 | 推荐 |
+|------|------|
+| 多 Profile + 自建技能共享 | **external_dirs**（官方支持） |
+| 现有 symlink 已稳定 | 保持现状，逐步迁移到 external_dirs |
+| 单 Profile | 无需共享 |
+
+---
+
+## Profile Symlink 共享模式
+
 ---
 
 *Created: 2026-04-13 by Luna*  
-*Updated: 2026-04-30 - 添加官方 Overlay 方案调研、Profile 隔离架构*
+*Updated: 2026-04-30 - 添加官方 Overlay 方案调研、Profile 隔离架构*  
+*Updated: 2026-05-10 - 添加 Curator 治理系统、Profile Symlink 共享模式*
