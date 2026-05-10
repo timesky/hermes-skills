@@ -6,8 +6,9 @@ description: |
 tags: [zhihu, collection, sync, opencli, obsidian, knowledge-base, raw, wiki-ingest]
 version: 3.0.0
 created: 2026-04-14
-updated: 2026-04-20
+updated: 2026-05-10
 author: Luna
+category: common
 ---
 
 # 知乎收藏夹增量同步

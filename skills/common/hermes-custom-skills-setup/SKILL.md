@@ -158,7 +158,7 @@ git push origin master
 
 ## 自建技能列表（v3.0 - 按 Profile 分离）
 
-### 公共技能（common/）- 5个
+### 公共技能（common/）- 6个
 
 | 技能 | 说明 | 所有 Profile 共享 |
 |------|------|------------------|
@@ -167,8 +167,9 @@ git push origin master
 | hermes-custom-skills-setup | 技能管理架构 | ✓ |
 | wiki-auto-save | 知识库自动保存 | ✓ |
 | wiki-ingest | 增量式 ingest | ✓ |
+| zhihu-favorites-sync | 知乎收藏夹同步 | ✓ |
 
-### MCN 专用技能（mcn/）- 15个
+### MCN 专用技能（mcn/）- 14个
 
 | 技能 | 说明 |
 |------|------|
@@ -186,7 +187,6 @@ git push origin master
 | wechat-analytics-browser | Browser 方式数据分析 |
 | humanizer-zh | 去除 AI 写作痕迹 |
 | ai-image-generation | AI 图片生成 |
-| zhihu-favorites-sync | 知乎收藏夹同步 |
 
 ### Stock 专用技能（stock/）- 6个
 
@@ -199,7 +199,7 @@ git push origin master
 | financial-cache-operations | 金融缓存操作 |
 | strategy-auto-test | 策略自动测试 |
 
-**总计**：26个自建技能（common:5, mcn:15, stock:6）
+**总计**：26个自建技能（common:6, mcn:14, stock:6）
 
 ---
 
