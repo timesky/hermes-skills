@@ -21,7 +21,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "data" / "paper_trading" / "paper_trading.db"
+DB_PATH = Path.home() / ".hermes" / "profiles" / "stock" / "data" / "paper_trading" / "paper_trading.db"
 
 
 def get_db_data():

@@ -85,14 +85,25 @@ class FiveDayHoldStrategy(bt.Strategy):
 
         current_date = self.data.datetime.date(0)
         current_close = self.close[0]
+        current_high = self.data.high[0]
+        current_low = self.data.low[0]
         ma5 = self.ma5[0]
         ma60 = self.ma60[0]
+
+        # 涨跌停判断（简化：high==close 可能涨停，low==close 可能跌停）
+        is_limit_up = (current_high == current_close) and (current_high > 0)
+        is_limit_down = (current_low == current_close) and (current_low > 0)
 
         # 关键：打印当天信号判断数据，便于验证未来函数
         # 验证点: ma5包含当天收盘价, 判断是否收盘站稳
 
         # 无持仓情况
         if not self.position:
+            # 涨停日不买入（无法买入）
+            if is_limit_up:
+                self.log(f'涨停日跳过买入: 收盘{current_close:.2f} = 最高{current_high:.2f}')
+                return
+
             # 条件: 站稳60日线 + 收盘站稳5日线
             if current_close > ma60 and current_close > ma5:
                 self.days_above_ma5 += 1
@@ -109,6 +120,11 @@ class FiveDayHoldStrategy(bt.Strategy):
 
         # 有持仓情况
         else:
+            # 跌停日标记（无法卖出，次日再处理）
+            if is_limit_down:
+                self.log(f'跌停日无法卖出: 收盘{current_close:.2f} = 最低{current_low:.2f}')
+                return
+
             # 策略止损: 收盘价 < MA5 * 0.98 (MA5下方2%)
             if current_close < ma5 * (1 - self.params.ma_stop_pct):
                 stop_pct = (1 - current_close / ma5) * 100
@@ -125,8 +141,8 @@ class FiveDayHoldStrategy(bt.Strategy):
                 self.order = self.sell(size=self.position.size)
                 return
 
-            # 加仓逻辑: 连续2日站稳5日线
-            if current_close > ma5:
+            # 加仓逻辑: 连续2日站稳5日线（涨停日不加仓）
+            if current_close > ma5 and not is_limit_up:
                 self.days_above_ma5 += 1
                 self.days_below_ma5 = 0
 
@@ -174,7 +190,7 @@ def fetch_data_with_cache(code, start_date, end_date, use_cache=True):
             start_date=start_date,
             end_date=end_date,
             frequency='d',
-            adjustflag='2'  # 不复权
+            adjustflag='1'  # 前复权（分红除权后价格调整，避免假止损）
         )
 
         data_list = []
@@ -206,6 +222,7 @@ def main():
     parser.add_argument('--end', type=str, default='2026-04-30', help='结束日期')
     parser.add_argument('--cash', type=float, default=100000, help='初始资金')
     parser.add_argument('--commission', type=float, default=0.001, help='手续费率')
+    parser.add_argument('--slippage', type=float, default=0.002, help='滑点率（默认0.2%，按流动性调整）')
     parser.add_argument('--no-cache', action='store_true', help='不使用缓存')
 
     args = parser.parse_args()
@@ -227,9 +244,10 @@ def main():
     )
     cerebro.adddata(data)
 
-    # 设置资金和手续费
+    # 设置资金、手续费和滑点
     cerebro.broker.setcash(args.cash)
     cerebro.broker.setcommission(commission=args.commission)
+    cerebro.broker.set_slippage_perc(perc=args.slippage, slip_open=True, slip_limit=True, slip_match=True)
 
     # 添加分析指标
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')

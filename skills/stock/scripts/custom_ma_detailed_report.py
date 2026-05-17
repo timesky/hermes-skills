@@ -249,7 +249,7 @@ def fetch_data_with_cache(code, start_date, end_date):
             start_date=start_date,
             end_date=end_date,
             frequency='d',
-            adjustflag='2'
+            adjustflag='1'  # 前复权（统一设置）
         )
 
         data_list = []

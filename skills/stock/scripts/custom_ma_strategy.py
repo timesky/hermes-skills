@@ -243,7 +243,7 @@ def fetch_data(code, start_date, end_date):
         start_date=start_date,
         end_date=end_date,
         frequency='d',
-        adjustflag='2'  # 不复权
+        adjustflag='1'  # 前复权（统一设置）
     )
     
     data_list = []

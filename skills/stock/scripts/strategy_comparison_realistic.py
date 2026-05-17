@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-策略对比回测 - 五日不破策略 vs 自定义均线策略
-同时运行两个策略，对比回测效果
+真实约束回测 - 基于知乎验证的修正版本
+修正内容：
+1. 滑点：每笔0.1%双边（买入+卖出各0.1%）
+2. 手续费：万分之三 + 最低5元
+3. 资金约束：2000元小资金限制
+4. 持仓限制：单票最低200元（防止手续费占比过高）
 
 用法:
-    python3 strategy_comparison.py --code sh.600584 --start 2024-01-01 --end 2026-04-30
-    python3 strategy_comparison.py --code sh.600036 --start 2023-01-01 --end 2026-04-30
+    python3 strategy_comparison_realistic.py --code sh.600584 --start 2024-01-01 --end 2026-04-30
 """
 
 import argparse
@@ -16,14 +19,30 @@ from datetime import datetime
 from tabulate import tabulate
 
 
-# ============ 策略1: 五日不破策略 ============
-class FiveDayHoldStrategy(bt.Strategy):
-    """五日不破策略"""
+# ============ 修正版佣金类（含最低收费） ============
+class RealisticCommission(bt.CommInfoBase):
+    """真实佣金：万分之三 + 最低5元"""
+    
+    params = (
+        ('commission', 0.0003),  # 万分之三
+        ('min_commission', 5),   # 最低5元
+        ('stocklike', True),
+        ('commtype', bt.CommInfoBase.COMM_PERC),
+    )
+    
+    def _getcommission(self, size, price, pseudoexec):
+        """计算实际佣金"""
+        raw_commission = abs(size) * price * self.params.commission
+        return max(raw_commission, self.params.min_commission)
+
+
+# ============ 策略1: 五日不破策略（修正版） ============
+class FiveDayHoldStrategyRealistic(bt.Strategy):
+    """五日不破策略 - 小资金修正版"""
     
     params = (
         ('stop_loss', 0.10),
-        ('initial_position', 0.3),
-        ('add_position', 0.3),
+        ('min_position_value', 200),  # 单票最低200元（防止手续费占比过高）
     )
     
     def __init__(self):
@@ -33,7 +52,6 @@ class FiveDayHoldStrategy(bt.Strategy):
         
         self.order = None
         self.buy_price = None
-        self.position_size = 0
         self.days_below_ma5 = 0
         self.days_above_ma5 = 0
         
@@ -45,7 +63,6 @@ class FiveDayHoldStrategy(bt.Strategy):
                 self.buy_price = order.executed.price
             else:
                 self.buy_price = None
-                self.position_size = 0
                 self.days_above_ma5 = 0
         self.order = None
         
@@ -61,48 +78,49 @@ class FiveDayHoldStrategy(bt.Strategy):
             if current_close > ma60 and current_close > ma5:
                 self.days_above_ma5 += 1
                 if self.days_above_ma5 >= 2:
-                    size = int((self.broker.getcash() * self.params.initial_position) / current_close)
+                    # 修正：全仓买入（小资金策略）
+                    cash = self.broker.getcash()
+                    position_value = cash * 0.95  # 预留5%缓冲
+                    
+                    # 检查是否达到最低持仓金额
+                    if position_value < self.params.min_position_value:
+                        return  # 资金太少，不买入
+                    
+                    size = int(position_value / current_close)
                     if size > 0:
                         self.order = self.buy(size=size)
-                        self.position_size = 0.3
             else:
                 self.days_above_ma5 = 0
         else:
+            # 止损：跌破买入价10%
             if self.buy_price and current_close < self.buy_price * (1 - self.params.stop_loss):
                 self.order = self.sell(size=self.position.size)
                 return
                 
-            if current_close > ma5:
-                self.days_above_ma5 += 1
-                self.days_below_ma5 = 0
-                if self.days_above_ma5 >= 2 and self.position_size < 0.6:
-                    size = int((self.broker.getcash() * self.params.add_position) / current_close)
-                    if size > 0:
-                        self.order = self.buy(size=size)
-                        self.position_size += 0.3
-            else:
+            # 止盈：跌破MA5 2%清仓
+            if current_close < ma5 * 0.98:
                 self.days_below_ma5 += 1
                 self.days_above_ma5 = 0
-                if self.days_below_ma5 >= 2:
+                if self.days_below_ma5 >= 1:  # 立即清仓
                     self.order = self.sell(size=self.position.size)
+            else:
+                self.days_below_ma5 = 0
 
 
-# ============ 策略2: 自定义均线策略 ============
-class CustomMAStrategy(bt.Strategy):
-    """自定义均线策略 (MA7/MA22/MA53/MA87)"""
+# ============ 策略2: 自定义均线策略（修正版） ============
+class CustomMAStrategyRealistic(bt.Strategy):
+    """自定义均线策略 - 小资金修正版"""
     
     params = (
         ('ma7', 7),
         ('ma22', 22),
-        ('ma53', 53),
         ('ma87', 87),
-        ('position_pct', 0.5),
+        ('min_position_value', 200),
     )
     
     def __init__(self):
         self.ma7 = bt.indicators.SMA(self.data.close, period=self.params.ma7)
         self.ma22 = bt.indicators.SMA(self.data.close, period=self.params.ma22)
-        self.ma53 = bt.indicators.SMA(self.data.close, period=self.params.ma53)
         self.ma87 = bt.indicators.SMA(self.data.close, period=self.params.ma87)
         self.ma87_slope = bt.indicators.RateOfChange(self.ma87, period=3)
         self.golden_cross = bt.indicators.CrossOver(self.ma7, self.ma22)
@@ -140,21 +158,29 @@ class CustomMAStrategy(bt.Strategy):
             volume_ok = 1.2 <= volume_ratio <= 3.0
             
             if trend_ok and cross_ok and volume_ok:
-                size = int((self.broker.getcash() * self.params.position_pct) / current_close)
+                cash = self.broker.getcash()
+                position_value = cash * 0.95
+                
+                if position_value < self.params.min_position_value:
+                    return
+                    
+                size = int(position_value / current_close)
                 if size > 0:
                     self.order = self.buy(size=size)
         else:
+            # 跌破MA22止损
             if current_close < ma22:
                 self.order = self.sell(size=self.position.size)
                 return
                 
+            # 死叉止损
             if self.golden_cross[0] < 0 and current_close < ma22:
                 self.order = self.sell(size=self.position.size)
                 return
                 
+            # 跌破MA87且斜率负
             if current_close < ma87 and ma87_slope_val < 0:
                 self.order = self.sell(size=self.position.size)
-                return
 
 
 def fetch_data(code, start_date, end_date):
@@ -186,8 +212,8 @@ def fetch_data(code, start_date, end_date):
     return df
 
 
-def run_backtest(data_df, strategy_class, strategy_name, cash=100000, commission=0.001):
-    """运行单个策略回测"""
+def run_backtest_realistic(data_df, strategy_class, strategy_name, cash=2000):
+    """运行真实约束回测"""
     cerebro = bt.Cerebro()
     cerebro.addstrategy(strategy_class)
     
@@ -195,7 +221,12 @@ def run_backtest(data_df, strategy_class, strategy_name, cash=100000, commission
     cerebro.adddata(data)
     
     cerebro.broker.setcash(cash)
-    cerebro.broker.setcommission(commission=commission)
+    
+    # 修正1：真实佣金（万分之三 + 最低5元）
+    cerebro.broker.addcommissioninfo(RealisticCommission())
+    
+    # 修正2：滑点0.1%双边
+    cerebro.broker.set_slippage_perc(perc=0.001, slip_open=True, slip_limit=True, slip_match=True, slip_out=True)
     
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
@@ -232,6 +263,8 @@ def run_backtest(data_df, strategy_class, strategy_name, cash=100000, commission
     
     return {
         '策略': strategy_name,
+        '初始资金': f'{cash:,.0f}',
+        '最终资产': f'{final_value:,.2f}',
         '总收益': f'{pnl:,.2f}',
         '收益率': f'{pnl_pct:+.2f}%',
         '夏普比率': f'{sharpe_ratio:.3f}',
@@ -243,19 +276,23 @@ def run_backtest(data_df, strategy_class, strategy_name, cash=100000, commission
 
 
 def main():
-    parser = argparse.ArgumentParser(description='策略对比回测')
+    parser = argparse.ArgumentParser(description='真实约束回测（2000元小资金）')
     parser.add_argument('--code', type=str, required=True, help='股票代码，如 sh.600584')
     parser.add_argument('--start', type=str, default='2024-01-01', help='开始日期')
     parser.add_argument('--end', type=str, default='2026-04-30', help='结束日期')
-    parser.add_argument('--cash', type=float, default=100000, help='初始资金')
+    parser.add_argument('--cash', type=float, default=2000, help='初始资金（默认2000元）')
     
     args = parser.parse_args()
     
-    print(f'\n{"="*60}')
-    print(f'策略对比回测: {args.code}')
+    print(f'\n{"="*70}')
+    print(f'真实约束回测: {args.code}')
     print(f'回测区间: {args.start} ~ {args.end}')
-    print(f'初始资金: {args.cash:,.0f}')
-    print(f'{"="*60}\n')
+    print(f'初始资金: {args.cash:,.0f}元')
+    print(f'修正参数:')
+    print(f'  - 滑点: 0.1%双边（买入+卖出各0.1%）')
+    print(f'  - 手续费: 万分之三 + 最低5元')
+    print(f'  - 单票最低: 200元（防止手续费占比过高）')
+    print(f'{"="*70}\n')
     
     # 获取数据
     print('获取数据中...')
@@ -264,19 +301,21 @@ def main():
     print(f'数据范围: {data_df.index[0].date()} ~ {data_df.index[-1].date()}\n')
     
     # 运行两个策略
-    print('运行五日不破策略...')
-    result1 = run_backtest(data_df, FiveDayHoldStrategy, '五日不破策略', args.cash)
+    print('运行五日不破策略（修正版）...')
+    result1 = run_backtest_realistic(data_df, FiveDayHoldStrategyRealistic, '五日不破（修正版）', args.cash)
     
-    print('运行自定义均线策略...')
-    result2 = run_backtest(data_df, CustomMAStrategy, '自定义均线策略', args.cash)
+    print('运行自定义均线策略（修正版）...')
+    result2 = run_backtest_realistic(data_df, CustomMAStrategyRealistic, '自定义均线（修正版）', args.cash)
     
     # 输出对比结果
-    print(f'\n{"="*60}')
-    print('回测结果对比')
-    print(f'{"="*60}\n')
+    print(f'\n{"="*70}')
+    print('真实约束回测结果对比')
+    print(f'{"="*70}\n')
     
     results_table = [
-        ['指标', '五日不破策略', '自定义均线策略'],
+        ['指标', '五日不破（修正版）', '自定义均线（修正版）'],
+        ['初始资金', result1['初始资金'], result2['初始资金']],
+        ['最终资产', result1['最终资产'], result2['最终资产']],
         ['总收益', result1['总收益'], result2['总收益']],
         ['收益率', result1['收益率'], result2['收益率']],
         ['夏普比率', result1['夏普比率'], result2['夏普比率']],
@@ -289,8 +328,8 @@ def main():
     print(tabulate(results_table, headers='firstrow', tablefmt='grid'))
     
     # 判断哪个策略更好
-    r1 = float(result1['收益率'].replace('%', '').replace('+', ''))
-    r2 = float(result2['收益率'].replace('%', '').replace('+', ''))
+    r1 = float(result1['收益率'].replace('%', '').replace('+', '').replace('-', '-'))
+    r2 = float(result2['收益率'].replace('%', '').replace('+', '').replace('-', '-'))
     
     print(f'\n结论: ', end='')
     if r1 > r2:

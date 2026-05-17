@@ -197,7 +197,7 @@ def fetch_daily_kline(symbol: str, start: str, end: str) -> pd.DataFrame:
             start_date=start,
             end_date=end,
             frequency="d",
-            adjustflag="3"  # 不复权
+            adjustflag='1'  # 前复权（统一设置）
         )
         
         data_list = []

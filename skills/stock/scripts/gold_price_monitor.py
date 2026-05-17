@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 """
 沪金期货价格监控脚本（智能版）
 监控规则：
@@ -10,6 +10,8 @@
 止损条件：
 - 沪金跌破1000元/克 → 止损预警
 - 沪金反弹到1040元/克以上 → 减仓信号
+
+运行方式：/usr/bin/python3 gold_price_monitor.py
 """
 
 import sys
@@ -17,13 +19,11 @@ import json
 from datetime import datetime, time
 from pathlib import Path
 
-# 添加路径
-sys.path.insert(0, '/Users/hy_timesky/Library/Python/3.9/lib/python/site-packages')
-
 try:
     import akshare as ak
 except ImportError:
-    print("ERROR: akshare not found")
+    print("ERROR: akshare not found - 请确保使用系统 Python 3.9 运行")
+    print("运行方式: /usr/bin/python3 gold_price_monitor.py")
     sys.exit(1)
 
 # 阈值设置
